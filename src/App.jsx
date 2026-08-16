@@ -5,6 +5,7 @@ import Masuk, { GantiSandiAwal } from './komponen/Masuk.jsx';
 import Kerangka from './komponen/Kerangka.jsx';
 import { Beranda, DataInduk } from './halaman/Beranda.jsx';
 import KelolaPengguna from './halaman/KelolaPengguna.jsx';
+import ProgramKerja from './halaman/ProgramKerja.jsx';
 import { boleh } from './util/peran.js';
 
 export default function App() {
@@ -64,6 +65,8 @@ export default function App() {
           <BelumBerhak />
         ) : tab === 'beranda' ? (
           <Beranda setTab={setTab} />
+        ) : tab === 'programKerja' ? (
+          <ProgramKerja beritahu={beritahu} />
         ) : tab === 'pengguna' ? (
           <KelolaPengguna beritahu={beritahu} />
         ) : tab === 'pengaturan' ? (
