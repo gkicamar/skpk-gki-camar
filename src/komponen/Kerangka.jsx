@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
-  Landmark, Menu, X, Home, ClipboardList, HandCoins, FileText,
+  Menu, X, Home, ClipboardList, HandCoins, FileText,
   Wallet, Target, Users, Settings, LogOut,
 } from 'lucide-react';
+import { Logo } from './Dasar.jsx';
 import { useAuth } from '../konteks/Auth.jsx';
 import { boleh, namaPeran, PERAN } from '../util/peran.js';
 
@@ -35,9 +36,7 @@ export default function Kerangka({ tab, setTab, children }) {
       <aside className={`w-60 bg-stone-900 text-stone-400 flex flex-col shrink-0 no-print fixed lg:static inset-y-0 left-0 z-40 transition-transform duration-200 ${buka ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <div className="px-5 py-5 border-b border-stone-800 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="w-7 h-7 rounded bg-teal-700 flex items-center justify-center shrink-0">
-              <Landmark size={15} className="text-white" />
-            </span>
+            <Logo ukuran={28} />
             <div className="min-w-0">
               <h1 className="text-sm font-medium text-white leading-tight truncate">GKI Camar</h1>
               <p className="text-[11px] text-stone-500 truncate">Keuangan dan program kerja</p>

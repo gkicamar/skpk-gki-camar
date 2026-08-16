@@ -3,7 +3,7 @@ import { collection, doc, onSnapshot, setDoc, deleteDoc, serverTimestamp } from 
 import { db } from '../firebase/config.js';
 import { useAuth } from '../konteks/Auth.jsx';
 import { majelis, namaPeran } from '../util/peran.js';
-import { Plus, Pencil, Trash2, X, Save, Info, Users, ClipboardList, HandCoins, FileText } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Save, Info, ClipboardList, HandCoins, FileText, Layers } from 'lucide-react';
 
 export function Beranda({ setTab }) {
   const { profil, peran, bpSaya } = useAuth();
@@ -66,11 +66,27 @@ export function Beranda({ setTab }) {
 // Data induk badan pelayanan. Hanya super user yang boleh mengubah.
 export function DataInduk({ beritahu }) {
   const [bp, setBp] = useState([]);
+  const [unit, setUnit] = useState([]);
   const [form, setForm] = useState(null);
+  const [formUnit, setFormUnit] = useState(null);
   const [hapus, setHapus] = useState(null);
+  const [hapusUnit, setHapusUnit] = useState(null);
 
   useEffect(() => onSnapshot(collection(db, 'badanPelayanan'), (s) =>
-    setBp(s.docs.map((d) => ({ kode: d.id, ...d.data() })).sort((a, b) => a.urut - b.urut))), []);
+    setBp(s.docs.map((d) => ({ kode: d.id, ...d.data() })).sort((a, b) => (a.urut || 99) - (b.urut || 99)))), []);
+
+  useEffect(() => onSnapshot(collection(db, 'unit'), (s) =>
+    setUnit(s.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.urut || 99) - (b.urut || 99)))), []);
+
+  const simpanUnit = async (d) => {
+    const id = d.id || `${d.bp}_${Date.now()}`;
+    await setDoc(doc(db, 'unit', id), {
+      bp: d.bp, nama: d.nama.trim(), jenis: d.jenis, periode: d.periode.trim(),
+      urut: Number(d.urut) || 99, aktif: d.aktif, diperbarui: serverTimestamp(),
+    }, { merge: true });
+    setFormUnit(null);
+    beritahu('Unit tersimpan');
+  };
 
   const simpan = async (d) => {
     await setDoc(doc(db, 'badanPelayanan', d.kode), {
@@ -119,7 +135,83 @@ export function DataInduk({ beritahu }) {
         )}
       </div>
 
+      <div className="bg-white rounded-lg border border-stone-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-stone-100 flex justify-between items-center gap-3">
+          <div>
+            <h3 className="text-sm font-medium">Unit di bawah badan pelayanan</h3>
+            <p className="text-[11px] text-stone-500">
+              Sub bidang, pokja, atau panitia yang mengajukan PBO sendiri. Boleh dikosongkan.
+            </p>
+          </div>
+          <button onClick={() => setFormUnit({ baru: true, bp: bp[0]?.kode || '', nama: '', jenis: 'Sub Bidang', periode: '', urut: unit.length + 1, aktif: true })}
+            disabled={bp.length === 0}
+            className="px-2.5 py-1.5 text-xs border border-stone-300 rounded-md hover:bg-stone-50 disabled:opacity-40 flex items-center gap-1 shrink-0">
+            <Plus size={13} /> Tambah
+          </button>
+        </div>
+
+        {unit.length === 0 ? (
+          <p className="px-4 py-8 text-[13px] text-stone-500 text-center">
+            Belum ada unit. Badan pelayanan yang tidak punya pembagian tidak perlu mengisinya.
+          </p>
+        ) : (
+          <div className="divide-y divide-stone-50">
+            {bp.filter((b) => unit.some((u) => u.bp === b.kode)).map((b) => (
+              <div key={b.kode} className="px-4 py-3">
+                <p className="text-[11px] uppercase tracking-wider text-stone-500 mb-2">{b.nama}</p>
+                <div className="space-y-1.5">
+                  {unit.filter((u) => u.bp === b.kode).map((u) => (
+                    <div key={u.id} className="flex justify-between items-center gap-3 pl-3 border-l-2 border-stone-200">
+                      <div className="min-w-0">
+                        <p className={`text-[13px] ${u.aktif ? '' : 'text-stone-400'}`}>{u.nama}</p>
+                        <p className="text-[11px] text-stone-500">
+                          {u.jenis}{u.periode ? ` · ${u.periode}` : ''}{u.aktif ? '' : ' · nonaktif'}
+                        </p>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <button onClick={() => setFormUnit({ ...u, baru: false })}
+                          className="p-1.5 text-stone-400 hover:text-teal-700"><Pencil size={13} /></button>
+                        <button onClick={() => setHapusUnit(u)}
+                          className="p-1.5 text-stone-400 hover:text-red-600"><Trash2 size={13} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="px-4 py-3 border-t border-stone-100 bg-stone-50">
+          <p className="text-[11px] text-stone-600 flex items-start gap-1.5">
+            <Layers size={13} className="mt-px shrink-0" />
+            Pagu anggaran tetap dihitung di tingkat badan pelayanan supaya laporan ke Persidangan Majelis
+            tidak berubah bentuk. Unit hanya menandai siapa pelaksana kegiatan dan siapa yang mengajukan PBO.
+            Panitia yang sudah bubar cukup dinonaktifkan, jangan dihapus, supaya riwayatnya tetap ada.
+          </p>
+        </div>
+      </div>
+
       {form && <FormBP isi={form} adaKode={bp.map((b) => b.kode)} onBatal={() => setForm(null)} onSimpan={simpan} />}
+
+      {formUnit && <FormUnit isi={formUnit} bp={bp} onBatal={() => setFormUnit(null)} onSimpan={simpanUnit} />}
+
+      {hapusUnit && (
+        <div className="fixed inset-0 bg-stone-900/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg w-full max-w-sm p-5">
+            <h3 className="text-base font-medium mb-1.5">Hapus unit?</h3>
+            <p className="text-sm text-stone-600 mb-4">
+              {hapusUnit.nama} akan hilang dari pilihan. Kegiatan program kerja yang sudah menandai unit ini
+              tetap tersimpan tetapi penandanya menjadi kosong.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setHapusUnit(null)} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
+              <button onClick={async () => { await deleteDoc(doc(db, 'unit', hapusUnit.id)); setHapusUnit(null); beritahu('Unit dihapus'); }}
+                className="px-3 py-2 text-sm bg-red-700 text-white rounded-md hover:bg-red-800">Hapus</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {hapus && (
         <div className="fixed inset-0 bg-stone-900/40 flex items-center justify-center p-4 z-50">
@@ -192,6 +284,82 @@ function FormBP({ isi, adaKode, onBatal, onSimpan }) {
         <div className="px-5 py-4 border-t border-stone-200 flex justify-end gap-2 sticky bottom-0 bg-white">
           <button onClick={onBatal} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
           <button onClick={() => onSimpan({ ...d, kode: d.kode.toUpperCase() })} disabled={!sah}
+            className="px-4 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 disabled:bg-stone-300 flex items-center gap-1.5">
+            <Save size={15} /> Simpan
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FormUnit({ isi, bp, onBatal, onSimpan }) {
+  const [d, setD] = useState({ ...isi });
+  const panitia = d.jenis === 'Panitia';
+
+  return (
+    <div className="fixed inset-0 bg-stone-900/40 flex items-start md:items-center justify-center md:p-4 z-50 overflow-y-auto">
+      <div className="bg-white w-full max-w-md min-h-full md:min-h-0 md:my-6 md:rounded-lg">
+        <div className="px-5 py-4 border-b border-stone-200 flex justify-between items-center">
+          <h3 className="text-base font-medium">{isi.baru ? 'Tambah unit' : 'Ubah unit'}</h3>
+          <button onClick={onBatal} className="text-stone-400 hover:text-stone-700"><X size={18} /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-[11px] text-stone-500 mb-1">Badan pelayanan induk</label>
+            <select value={d.bp} disabled={!isi.baru} onChange={(e) => setD({ ...d, bp: e.target.value })}
+              className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm bg-white disabled:bg-stone-100">
+              {bp.map((b) => <option key={b.kode} value={b.kode}>{b.nama}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] text-stone-500 mb-1">Nama unit</label>
+            <input value={d.nama} onChange={(e) => setD({ ...d, nama: e.target.value })}
+              placeholder="Sub Bidang Peribadahan"
+              className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] text-stone-500 mb-1">Jenis</label>
+              <select value={d.jenis} onChange={(e) => setD({ ...d, jenis: e.target.value })}
+                className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm bg-white">
+                {['Sub Bidang', 'Pokja', 'Panitia', 'Lainnya'].map((j) => <option key={j}>{j}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] text-stone-500 mb-1">Urutan tampil</label>
+              <input type="number" value={d.urut} onChange={(e) => setD({ ...d, urut: e.target.value })}
+                className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] text-stone-500 mb-1">
+              Periode {panitia ? '' : '(opsional)'}
+            </label>
+            <input value={d.periode} onChange={(e) => setD({ ...d, periode: e.target.value })}
+              placeholder={panitia ? 'Natal 2026' : 'Kosongkan bila berjalan terus'}
+              className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm" />
+            {panitia && (
+              <p className="text-[11px] text-stone-500 mt-1">
+                Panitia biasanya bubar setelah kegiatannya selesai. Setelah itu nonaktifkan saja,
+                jangan dihapus, supaya riwayat PBO dan LPJ-nya tetap ada.
+              </p>
+            )}
+          </div>
+
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" checked={d.aktif} onChange={(e) => setD({ ...d, aktif: e.target.checked })} />
+            <span className="text-sm">Aktif dan boleh mengajukan PBO</span>
+          </label>
+        </div>
+
+        <div className="px-5 py-4 border-t border-stone-200 flex justify-end gap-2 sticky bottom-0 bg-white">
+          <button onClick={onBatal} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
+          <button onClick={() => onSimpan(d)} disabled={!d.nama.trim() || !d.bp}
             className="px-4 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 disabled:bg-stone-300 flex items-center gap-1.5">
             <Save size={15} /> Simpan
           </button>

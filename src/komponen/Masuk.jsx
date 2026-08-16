@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Landmark, Eye, EyeOff, LogIn, KeyRound, AlertTriangle } from 'lucide-react';
+import { Eye, EyeOff, LogIn, KeyRound, AlertTriangle } from 'lucide-react';
+import { Logo } from './Dasar.jsx';
 import { useAuth } from '../konteks/Auth.jsx';
 
 export default function Masuk() {
@@ -21,9 +22,7 @@ export default function Masuk() {
     <div className="min-h-full bg-stone-100 flex items-center justify-center p-4 font-sans">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2.5 mb-6 justify-center">
-          <span className="w-9 h-9 rounded-lg bg-teal-700 flex items-center justify-center">
-            <Landmark size={19} className="text-white" />
-          </span>
+          <Logo ukuran={38} bulat="rounded-lg" />
           <div>
             <h1 className="text-base font-medium text-stone-900 leading-tight">GKI Camar</h1>
             <p className="text-[11px] text-stone-500">Keuangan dan program kerja</p>

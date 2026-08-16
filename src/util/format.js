@@ -69,3 +69,16 @@ export const tulisNilaiBulan = (nilai) => {
 
 export const jumlahBulan = (bulan = {}) =>
   Object.values(bulan).reduce((s, v) => s + (typeof v === 'number' ? v : 0), 0);
+
+// Pemisah ribuan gaya Indonesia. Dipakai saat mengetik nominal supaya
+// tidak tertukar dengan pemisah desimal.
+export const formatRibuan = (nilai) => {
+  const digit = String(nilai ?? '').replace(/[^0-9]/g, '');
+  if (!digit) return '';
+  return digit.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+};
+
+export const angkaDari = (teks) => {
+  const digit = String(teks ?? '').replace(/[^0-9]/g, '');
+  return digit ? Number(digit) : 0;
+};

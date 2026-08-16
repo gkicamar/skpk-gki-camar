@@ -1,31 +1,31 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  collection, doc, onSnapshot, setDoc, getDoc, serverTimestamp, addDoc,
-} from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase/config.js';
 import { useAuth } from '../konteks/Auth.jsx';
-import { majelis } from '../util/peran.js';
+import { SelBulan } from '../komponen/Dasar.jsx';
 import {
-  rp, rpSingkat, periodeTP, labelBulanPendek, labelPeriode, tanggalPanjang,
-  tpBerjalan, bacaNilaiBulan, tulisNilaiBulan, jumlahBulan, hariIni,
+  rp, rpSingkat, periodeTP, labelBulanPendek, tanggalPanjang,
+  tpBerjalan, jumlahBulan, hariIni,
 } from '../util/format.js';
 import {
-  Plus, Pencil, Trash2, X, Save, Info, ChevronDown, ChevronRight, Printer,
-  Send, CheckCircle2, Undo2, AlertTriangle, Lock, CornerDownRight, Copy,
+  Plus, Pencil, Trash2, X, Save, ChevronDown, ChevronRight, Printer,
+  Send, CheckCircle2, Undo2, Lock, CornerDownRight,
 } from 'lucide-react';
 
 const STATUS = {
-  draf:        { label: 'Draf',        warna: 'bg-stone-100 text-stone-700' },
-  diajukan:    { label: 'Diajukan',    warna: 'bg-amber-50 text-amber-900' },
-  dikembalikan:{ label: 'Dikembalikan',warna: 'bg-red-50 text-red-900' },
-  disetujui:   { label: 'Disetujui',   warna: 'bg-teal-50 text-teal-900' },
+  draf:         { label: 'Draf',         warna: 'bg-stone-100 text-stone-700' },
+  diajukan:     { label: 'Diajukan',     warna: 'bg-amber-50 text-amber-900' },
+  dikembalikan: { label: 'Dikembalikan', warna: 'bg-red-50 text-red-900' },
+  disetujui:    { label: 'Disetujui',    warna: 'bg-teal-50 text-teal-900' },
 };
 
 const idProgram = (tahun, bp) => `${tahun}_${bp}`;
+const totalDok = (d) => (d?.baris || []).reduce((s, b) => s + jumlahBulan(b.bulan), 0);
 
 export default function ProgramKerja({ beritahu }) {
   const { profil, peran, bpSaya } = useAuth();
   const [bpDaftar, setBpDaftar] = useState([]);
+  const [unitDaftar, setUnitDaftar] = useState([]);
   const [tahun, setTahun] = useState(tpBerjalan());
   const [bpAktif, setBpAktif] = useState('');
   const [dok, setDok] = useState(null);
@@ -43,8 +43,11 @@ export default function ProgramKerja({ beritahu }) {
       .filter((x) => x.aktif !== false)
       .sort((a, b) => (a.urut || 99) - (b.urut || 99));
     setBpDaftar(d);
-    setBpAktif((v) => v || (bpSaya[0] || d[0]?.kode || ''));
+    setBpAktif((v) => v || bpSaya[0] || d[0]?.kode || '');
   }), [bpSaya]);
+
+  useEffect(() => onSnapshot(collection(db, 'unit'), (s) =>
+    setUnitDaftar(s.docs.map((x) => ({ id: x.id, ...x.data() })))), []);
 
   useEffect(() => {
     if (!bpAktif) return;
@@ -55,7 +58,6 @@ export default function ProgramKerja({ beritahu }) {
     }, () => setMemuat(false));
   }, [tahun, bpAktif]);
 
-  // Total tahun lalu dipakai sebagai pembanding di kaki halaman.
   useEffect(() => {
     if (!bpAktif) return;
     getDoc(doc(db, 'programKerja', idProgram(tahun - 1, bpAktif)))
@@ -64,17 +66,16 @@ export default function ProgramKerja({ beritahu }) {
   }, [tahun, bpAktif]);
 
   const bpObj = bpDaftar.find((b) => b.kode === bpAktif);
+  const unitBP = unitDaftar.filter((u) => u.bp === bpAktif && u.aktif !== false)
+    .sort((a, b) => (a.urut || 99) - (b.urut || 99));
   const milikSaya = bpSaya.includes(bpAktif);
   const status = dok?.status || 'draf';
 
-  // Pengurus hanya boleh menyunting milik sendiri saat masih draf atau dikembalikan.
-  // Pembina boleh menyunting binaannya kapan saja. Super user bebas.
   const bolehSunting =
     peran === 'super'
     || (peran === 'pembina' && milikSaya)
     || (peran === 'pengurus' && milikSaya && ['draf', 'dikembalikan'].includes(status));
-
-  const bolehVerifikasi = (peran === 'pembina' && milikSaya && status === 'diajukan') || peran === 'super';
+  const bolehVerifikasi = peran === 'super' || (peran === 'pembina' && milikSaya && status === 'diajukan');
   const bolehAjukan = peran === 'pengurus' && milikSaya && ['draf', 'dikembalikan'].includes(status);
 
   const baris = dok?.baris || [];
@@ -83,26 +84,24 @@ export default function ProgramKerja({ beritahu }) {
   const totalBaris = (b) => jumlahBulan(b.bulan) + anak(b.id).reduce((s, a) => s + jumlahBulan(a.bulan), 0);
   const total = totalDok(dok);
   const totalRutin = induk.filter((b) => b.sifat === 'Rutin').reduce((s, b) => s + totalBaris(b), 0);
-  const totalNon = total - totalRutin;
+  const namaUnit = (id) => unitDaftar.find((u) => u.id === id)?.nama || '';
 
   const simpanDok = async (perubahan, pesan) => {
     await setDoc(doc(db, 'programKerja', idProgram(tahun, bpAktif)), {
-      tahunPelayanan: tahun,
-      bp: bpAktif,
-      status: dok?.status || 'draf',
-      baris: dok?.baris || [],
+      tahunPelayanan: tahun, bp: bpAktif,
+      status: dok?.status || 'draf', baris: dok?.baris || [],
       ...perubahan,
-      diperbarui: serverTimestamp(),
-      diperbaruiOleh: profil?.nama || '',
+      diperbarui: serverTimestamp(), diperbaruiOleh: profil?.nama || '',
     }, { merge: true });
     if (pesan) beritahu(pesan);
   };
 
   const simpanBaris = async (isi) => {
     const ada = baris.some((b) => b.id === isi.id);
-    const baru = ada ? baris.map((b) => (b.id === isi.id ? isi : b)) : [...baris, isi];
-    await simpanDok({ baris: baru }, ada ? 'Kegiatan diperbarui' : 'Kegiatan ditambahkan');
+    await simpanDok({ baris: ada ? baris.map((b) => (b.id === isi.id ? isi : b)) : [...baris, isi] },
+      ada ? 'Kegiatan diperbarui' : 'Kegiatan ditambahkan');
     setFormBaris(null);
+    if (!ada && !isi.indukId) setBuka(isi.id);
   };
 
   const hapusBaris = async (b) => {
@@ -111,8 +110,7 @@ export default function ProgramKerja({ beritahu }) {
     setHapus(null);
   };
 
-  const ubahBulan = async (barisId, periode, masukan) => {
-    const nilai = bacaNilaiBulan(masukan);
+  const ubahBulan = async (barisId, periode, nilai) => {
     const baru = baris.map((b) => {
       if (b.id !== barisId) return b;
       const bl = { ...(b.bulan || {}) };
@@ -131,9 +129,7 @@ export default function ProgramKerja({ beritahu }) {
   const verifikasi = async ({ setuju, catatan }) => {
     await simpanDok({
       status: setuju ? 'disetujui' : 'dikembalikan',
-      catatanPembina: catatan,
-      diverifikasiOleh: profil?.nama || '',
-      tglVerifikasi: hariIni(),
+      catatanPembina: catatan, diverifikasiOleh: profil?.nama || '', tglVerifikasi: hariIni(),
     }, setuju ? 'Program kerja disetujui' : 'Dikembalikan ke pengurus');
     setDialogVerifikasi(null);
   };
@@ -142,17 +138,13 @@ export default function ProgramKerja({ beritahu }) {
 
   return (
     <div className="max-w-5xl mx-auto space-y-4 pb-10">
-
-      {/* Pemilih badan pelayanan dan tahun */}
       <div className="bg-white rounded-lg border border-stone-200 p-4 flex flex-wrap gap-4 items-end no-print">
         <div className="min-w-[200px] flex-1">
           <label className="block text-[11px] text-stone-500 mb-1">Badan pelayanan</label>
           <select value={bpAktif} onChange={(e) => { setBpAktif(e.target.value); setBuka(null); }}
             className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm bg-white">
             {bpDaftar.map((b) => (
-              <option key={b.kode} value={b.kode}>
-                {b.nama}{bpSaya.includes(b.kode) ? ' · milik Anda' : ''}
-              </option>
+              <option key={b.kode} value={b.kode}>{b.nama}{bpSaya.includes(b.kode) ? ' · milik Anda' : ''}</option>
             ))}
           </select>
         </div>
@@ -169,7 +161,6 @@ export default function ProgramKerja({ beritahu }) {
         </button>
       </div>
 
-      {/* Kepala dokumen */}
       <div className="bg-white rounded-lg border border-stone-200 p-5 print-flat">
         <div className="flex flex-wrap justify-between items-start gap-3">
           <div className="min-w-0">
@@ -203,7 +194,7 @@ export default function ProgramKerja({ beritahu }) {
             <div>
               <p className="text-[12px] text-teal-900">
                 Disetujui {dok?.diverifikasiOleh} pada {tanggalPanjang(dok?.tglVerifikasi)}.
-                Uraian kegiatan di bawah ini menjadi dasar pengajuan PBO.
+                Uraian kegiatan di bawah menjadi dasar pengajuan PBO.
               </p>
               {dok?.catatanPembina && <p className="text-[12px] text-teal-900 mt-1">{dok.catatanPembina}</p>}
             </div>
@@ -234,11 +225,10 @@ export default function ProgramKerja({ beritahu }) {
         )}
       </div>
 
-      {/* Ringkasan */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           ['Kegiatan rutin', rp(totalRutin)],
-          ['Kegiatan non rutin', rp(totalNon)],
+          ['Kegiatan non rutin', rp(total - totalRutin)],
           ['Jumlah setahun', rp(total)],
           ['Periode sebelumnya', lalu === null ? 'belum ada data' : rp(lalu)],
         ].map(([l, v]) => (
@@ -255,7 +245,6 @@ export default function ProgramKerja({ beritahu }) {
         ))}
       </div>
 
-      {/* Daftar kegiatan */}
       <div className="bg-white rounded-lg border border-stone-200 overflow-hidden print-flat">
         <div className="px-4 py-3 border-b border-stone-100 flex justify-between items-center gap-3">
           <div>
@@ -278,8 +267,7 @@ export default function ProgramKerja({ beritahu }) {
           <div className="px-4 py-12 text-center">
             <p className="text-sm text-stone-500 mb-1">Belum ada kegiatan tersusun.</p>
             <p className="text-[12px] text-stone-500">
-              {bolehSunting
-                ? 'Tekan tombol Kegiatan di atas untuk mulai menyusun.'
+              {bolehSunting ? 'Tekan tombol Kegiatan di atas untuk mulai menyusun.'
                 : 'Badan pelayanan ini belum menyusun program kerjanya.'}
             </p>
           </div>
@@ -288,11 +276,11 @@ export default function ProgramKerja({ beritahu }) {
             {induk.map((b) => (
               <Kegiatan key={b.id} baris={b} anak={anak(b.id)} bulan={bulan}
                 terbuka={buka === b.id} onBuka={() => setBuka(buka === b.id ? null : b.id)}
-                total={totalBaris(b)} bolehSunting={bolehSunting}
+                total={totalBaris(b)} bolehSunting={bolehSunting} namaUnit={namaUnit}
                 onUbahBulan={ubahBulan}
                 onSunting={(x) => setFormBaris({ ...x, baru: false })}
-                onTambahAnak={() => setFormBaris({ baru: true, indukId: b.id })}
-                onHapus={(x) => setHapus(x)} />
+                onTambahAnak={() => setFormBaris({ baru: true, indukId: b.id, unitId: b.unitId || '' })}
+                onHapus={setHapus} />
             ))}
           </div>
         )}
@@ -307,27 +295,23 @@ export default function ProgramKerja({ beritahu }) {
       )}
 
       {formBaris && (
-        <FormBaris isi={formBaris} onBatal={() => setFormBaris(null)} onSimpan={simpanBaris} />
+        <FormBaris isi={formBaris} bulan={bulan} unitBP={unitBP}
+          onBatal={() => setFormBaris(null)} onSimpan={simpanBaris} />
       )}
-
       {dialogVerifikasi && (
         <DialogVerifikasi setuju={dialogVerifikasi.setuju}
           onBatal={() => setDialogVerifikasi(null)} onSimpan={verifikasi} />
       )}
-
       {hapus && (
         <div className="fixed inset-0 bg-stone-900/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg w-full max-w-sm p-5">
             <h3 className="text-base font-medium mb-1.5">Hapus kegiatan?</h3>
             <p className="text-sm text-stone-600 mb-4">
-              {hapus.nama}
-              {anak(hapus.id).length > 0 && ` beserta ${anak(hapus.id).length} sub kegiatannya`} akan dihapus.
+              {hapus.nama}{anak(hapus.id).length > 0 && ` beserta ${anak(hapus.id).length} sub kegiatannya`} akan dihapus.
             </p>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setHapus(null)}
-                className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
-              <button onClick={() => hapusBaris(hapus)}
-                className="px-3 py-2 text-sm bg-red-700 text-white rounded-md hover:bg-red-800">Hapus</button>
+              <button onClick={() => setHapus(null)} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
+              <button onClick={() => hapusBaris(hapus)} className="px-3 py-2 text-sm bg-red-700 text-white rounded-md hover:bg-red-800">Hapus</button>
             </div>
           </div>
         </div>
@@ -336,15 +320,11 @@ export default function ProgramKerja({ beritahu }) {
   );
 }
 
-function totalDok(d) {
-  if (!d?.baris) return 0;
-  return d.baris.reduce((s, b) => s + jumlahBulan(b.bulan), 0);
-}
-
 /* ─────────── Satu kegiatan ─────────── */
 
-function Kegiatan({ baris, anak, bulan, terbuka, onBuka, total, bolehSunting, onUbahBulan, onSunting, onTambahAnak, onHapus }) {
+function Kegiatan({ baris, anak, bulan, terbuka, onBuka, total, bolehSunting, namaUnit, onUbahBulan, onSunting, onTambahAnak, onHapus }) {
   const adaAnak = anak.length > 0;
+  const unit = namaUnit(baris.unitId);
 
   return (
     <div>
@@ -360,9 +340,7 @@ function Kegiatan({ baris, anak, bulan, terbuka, onBuka, total, bolehSunting, on
                 baris.sifat === 'Rutin' ? 'bg-stone-100 text-stone-700' : 'bg-blue-50 text-blue-900'}`}>
                 {baris.sifat}
               </span>
-              {baris.subBidang && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-600">{baris.subBidang}</span>
-              )}
+              {unit && <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-900">{unit}</span>}
             </div>
             {baris.tujuan && <p className="text-[12px] text-stone-600 mt-0.5">{baris.tujuan}</p>}
           </div>
@@ -379,20 +357,15 @@ function Kegiatan({ baris, anak, bulan, terbuka, onBuka, total, bolehSunting, on
 
         {terbuka && (
           <div className="mt-3 ml-7 space-y-3">
-            {baris.indikator && (
-              <Rincian label="Indikator hasil" isi={baris.indikator} />
-            )}
+            {baris.detail && <Rincian label="Detail pelaksanaan" isi={baris.detail} />}
+            {baris.indikator && <Rincian label="Indikator hasil" isi={baris.indikator} />}
             {baris.jadwal && <Rincian label="Jadwal kegiatan" isi={baris.jadwal} />}
 
-            {!adaAnak && (
+            {!adaAnak ? (
               <GridBulan bulan={bulan} nilai={baris.bulan} kunci={!bolehSunting}
                 onUbah={(p, v) => onUbahBulan(baris.id, p, v)} />
-            )}
-
-            {adaAnak && (
-              <p className="text-[11px] text-stone-500">
-                Anggaran kegiatan ini dijabarkan pada sub kegiatan di bawah.
-              </p>
+            ) : (
+              <p className="text-[11px] text-stone-500">Anggaran kegiatan ini dijabarkan pada sub kegiatan di bawah.</p>
             )}
 
             {bolehSunting && (
@@ -412,6 +385,7 @@ function Kegiatan({ baris, anak, bulan, terbuka, onBuka, total, bolehSunting, on
             <div className="flex-1 min-w-0">
               <p className="text-[13px]">{a.nama}</p>
               {a.tujuan && <p className="text-[11px] text-stone-600 mt-0.5">{a.tujuan}</p>}
+              {terbuka && a.detail && <p className="text-[11px] text-stone-600 mt-1 whitespace-pre-line">{a.detail}</p>}
               {terbuka && (
                 <div className="mt-2">
                   <GridBulan bulan={bulan} nilai={a.bulan} kunci={!bolehSunting}
@@ -444,64 +418,55 @@ function Rincian({ label, isi }) {
   );
 }
 
-/* ─────────── Kotak dua belas bulan ─────────── */
-
 function GridBulan({ bulan, nilai = {}, kunci, onUbah }) {
+  const total = jumlahBulan(nilai);
   return (
     <div>
-      <div className="flex justify-between items-baseline mb-1.5">
+      <div className="flex justify-between items-baseline mb-1.5 gap-3">
         <p className="text-[10px] uppercase tracking-wider text-stone-500">Anggaran per bulan</p>
-        {!kunci && <p className="text-[10px] text-stone-400">isi angka rupiah, atau X bila tanpa anggaran</p>}
+        {!kunci && <p className="text-[10px] text-stone-400">angka rupiah, atau X bila tanpa anggaran</p>}
       </div>
       <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-1.5">
-        {bulan.map((p) => {
-          const v = nilai[p];
-          const tandaX = v === 'X';
-          return (
-            <div key={p}>
-              <label className="block text-[9px] text-stone-500 mb-0.5">{labelBulanPendek(p)}</label>
-              {kunci ? (
-                <div className={`w-full border rounded px-1.5 py-1 text-[11px] text-right ${
-                  tandaX ? 'border-blue-200 bg-blue-50 text-blue-900 text-center'
-                    : v ? 'border-stone-200 bg-white' : 'border-stone-100 bg-stone-50 text-stone-300'}`}>
-                  {tandaX ? 'X' : v ? rpSingkat(v) : '—'}
-                </div>
-              ) : (
-                <input
-                  defaultValue={tulisNilaiBulan(v)}
-                  onBlur={(e) => onUbah(p, e.target.value)}
-                  inputMode="text"
-                  className={`w-full border rounded px-1.5 py-1 text-[11px] text-right focus:border-teal-600 outline-none ${
-                    tandaX ? 'border-blue-300 bg-blue-50 text-blue-900 text-center' : 'border-stone-300'}`}
-                />
-              )}
-            </div>
-          );
-        })}
+        {bulan.map((p) => (
+          <div key={p}>
+            <label className="block text-[9px] text-stone-500 mb-0.5">{labelBulanPendek(p)}</label>
+            <SelBulan nilai={nilai[p]} kunci={kunci} onUbah={(v) => onUbah(p, v)} />
+          </div>
+        ))}
       </div>
+      {total > 0 && <p className="text-[11px] text-stone-600 text-right mt-1.5">Jumlah {rp(total)}</p>}
     </div>
   );
 }
 
-/* ─────────── Formulir kegiatan ─────────── */
+/* ─────────── Formulir kegiatan, lengkap sejak awal ─────────── */
 
-function FormBaris({ isi, onBatal, onSimpan }) {
+function FormBaris({ isi, bulan, unitBP, onBatal, onSimpan }) {
   const anak = Boolean(isi.indukId);
   const [d, setD] = useState({
     id: isi.id || 'K' + Date.now(),
     indukId: isi.indukId ?? null,
     nama: isi.nama || '',
-    subBidang: isi.subBidang || '',
+    unitId: isi.unitId || '',
     sifat: isi.sifat || 'Rutin',
     tujuan: isi.tujuan || '',
     indikator: isi.indikator || '',
     jadwal: isi.jadwal || '',
+    detail: isi.detail || '',
     bulan: isi.bulan || {},
   });
 
+  const ubahBulan = (p, v) => setD((x) => {
+    const bl = { ...x.bulan };
+    if (v === null) delete bl[p]; else bl[p] = v;
+    return { ...x, bulan: bl };
+  });
+
+  const total = jumlahBulan(d.bulan);
+
   return (
     <div className="fixed inset-0 bg-stone-900/40 flex items-start md:items-center justify-center md:p-4 z-50 overflow-y-auto">
-      <div className="bg-white w-full max-w-lg min-h-full md:min-h-0 md:my-6 md:rounded-lg">
+      <div className="bg-white w-full max-w-2xl min-h-full md:min-h-0 md:my-6 md:rounded-lg">
         <div className="px-5 py-4 border-b border-stone-200 flex justify-between items-center">
           <h3 className="text-base font-medium">
             {isi.baru ? (anak ? 'Tambah sub kegiatan' : 'Tambah kegiatan') : 'Ubah kegiatan'}
@@ -517,28 +482,29 @@ function FormBaris({ isi, onBatal, onSimpan }) {
               className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm" />
           </div>
 
-          {!anak && (
-            <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {!anak && (
               <div>
                 <label className="block text-[11px] text-stone-500 mb-1">Sifat</label>
                 <select value={d.sifat} onChange={(e) => setD({ ...d, sifat: e.target.value })}
                   className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm bg-white">
-                  <option>Rutin</option>
-                  <option>Non Rutin</option>
+                  <option>Rutin</option><option>Non Rutin</option>
                 </select>
-                <p className="text-[11px] text-stone-500 mt-1">
-                  Non rutin ditinjau ulang tiap tahun
-                </p>
+                <p className="text-[11px] text-stone-500 mt-1">Non rutin ditinjau ulang tiap tahun</p>
               </div>
-              <div>
-                <label className="block text-[11px] text-stone-500 mb-1">Sub bidang pelaksana</label>
-                <input value={d.subBidang} onChange={(e) => setD({ ...d, subBidang: e.target.value })}
-                  placeholder="Sub Bid. Peribadahan"
-                  className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm" />
-                <p className="text-[11px] text-stone-500 mt-1">Penanda saja, boleh dikosongkan</p>
-              </div>
+            )}
+            <div>
+              <label className="block text-[11px] text-stone-500 mb-1">Unit pelaksana</label>
+              <select value={d.unitId} onChange={(e) => setD({ ...d, unitId: e.target.value })}
+                className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm bg-white">
+                <option value="">Badan pelayanan langsung</option>
+                {unitBP.map((u) => <option key={u.id} value={u.id}>{u.nama} · {u.jenis}</option>)}
+              </select>
+              <p className="text-[11px] text-stone-500 mt-1">
+                {unitBP.length === 0 ? 'Belum ada unit. Bisa ditambah di Data induk.' : 'Menentukan siapa yang mengajukan PBO'}
+              </p>
             </div>
-          )}
+          </div>
 
           <div>
             <label className="block text-[11px] text-stone-500 mb-1">Tujuan dan sasaran</label>
@@ -547,69 +513,71 @@ function FormBaris({ isi, onBatal, onSimpan }) {
               className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm resize-none" />
           </div>
 
+          <div>
+            <label className="block text-[11px] text-stone-500 mb-1">Detail pelaksanaan</label>
+            <textarea value={d.detail} onChange={(e) => setD({ ...d, detail: e.target.value })} rows={3}
+              placeholder="Rincian teknis atau satuan biaya, misalnya viatikum PF 550 ribu, transport luar Bekasi 300 ribu"
+              className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm resize-none" />
+          </div>
+
           {!anak && (
             <>
               <div>
                 <label className="block text-[11px] text-stone-500 mb-1">Indikator hasil</label>
                 <textarea value={d.indikator} onChange={(e) => setD({ ...d, indikator: e.target.value })} rows={3}
-                  placeholder="Ukuran keberhasilan yang bisa diperiksa, misalnya jumlah kehadiran"
+                  placeholder="Ukuran keberhasilan yang bisa diperiksa, misalnya kehadiran minimal 250 jemaat"
                   className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm resize-none" />
               </div>
               <div>
                 <label className="block text-[11px] text-stone-500 mb-1">Jadwal kegiatan</label>
                 <input value={d.jadwal} onChange={(e) => setD({ ...d, jadwal: e.target.value })}
-                  placeholder="Setiap hari Minggu, atau Insidentil, atau Bulan Mei 2026"
+                  placeholder="Setiap hari Minggu, Insidentil, atau Bulan Mei 2026"
                   className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm" />
               </div>
             </>
           )}
 
-          <p className="text-[12px] bg-stone-50 text-stone-700 px-3 py-2 rounded flex items-start gap-1.5">
-            <Info size={14} className="mt-px shrink-0" />
-            Anggaran per bulan diisi setelah kegiatan ini tersimpan, dengan membuka tanda panah
-            di daftar kegiatan.
-          </p>
+          <div className="border-t border-stone-200 pt-4">
+            <GridBulan bulan={bulan} nilai={d.bulan} kunci={false} onUbah={ubahBulan} />
+          </div>
         </div>
 
-        <div className="px-5 py-4 border-t border-stone-200 flex justify-end gap-2 sticky bottom-0 bg-white">
-          <button onClick={onBatal} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
-          <button onClick={() => onSimpan(d)} disabled={!d.nama.trim()}
-            className="px-4 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 disabled:bg-stone-300 flex items-center gap-1.5">
-            <Save size={15} /> Simpan
-          </button>
+        <div className="px-5 py-4 border-t border-stone-200 flex flex-wrap gap-3 justify-between items-center sticky bottom-0 bg-white">
+          <p className="text-[12px] text-stone-600">
+            {total > 0 ? `Jumlah setahun ${rp(total)}` : 'Belum ada anggaran diisi'}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={onBatal} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
+            <button onClick={() => onSimpan(d)} disabled={!d.nama.trim()}
+              className="px-4 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 disabled:bg-stone-300 flex items-center gap-1.5">
+              <Save size={15} /> Simpan
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-/* ─────────── Verifikasi pembina ─────────── */
-
 function DialogVerifikasi({ setuju, onBatal, onSimpan }) {
   const [catatan, setCatatan] = useState('');
   const wajib = !setuju && catatan.trim().length < 15;
-
   return (
     <div className="fixed inset-0 bg-stone-900/40 flex items-center justify-center p-4 z-50 overflow-y-auto">
       <div className="bg-white rounded-lg w-full max-w-md p-5 my-auto">
-        <h3 className="text-base font-medium mb-1.5">
-          {setuju ? 'Setujui program kerja' : 'Kembalikan ke pengurus'}
-        </h3>
+        <h3 className="text-base font-medium mb-1.5">{setuju ? 'Setujui program kerja' : 'Kembalikan ke pengurus'}</h3>
         <p className="text-sm text-stone-600 mb-4">
           {setuju
             ? 'Setelah disetujui, uraian kegiatan di dalamnya menjadi dasar pengajuan PBO. Pengurus tidak bisa mengubahnya lagi tanpa dikembalikan lebih dulu.'
             : 'Jelaskan apa yang perlu diperbaiki, supaya pengurus tahu harus mengubah bagian mana.'}
         </p>
-
         <label className="block text-[11px] text-stone-500 mb-1">
           {setuju ? 'Catatan untuk pengurus (opsional)' : 'Alasan pengembalian'}
         </label>
         <textarea value={catatan} onChange={(e) => setCatatan(e.target.value)} rows={3}
           placeholder={setuju ? 'Misalnya: anggaran konsumsi agar dipantau ketat' : 'Bagian mana yang perlu diperbaiki'}
-          className={`w-full border rounded-md px-3 py-2 text-sm resize-none ${
-            wajib && catatan ? 'border-red-300' : 'border-stone-300'}`} />
+          className={`w-full border rounded-md px-3 py-2 text-sm resize-none ${wajib && catatan ? 'border-red-300' : 'border-stone-300'}`} />
         {wajib && <p className="text-[11px] text-amber-700 mt-1">Alasan minimal lima belas huruf.</p>}
-
         <div className="flex justify-end gap-2 mt-5">
           <button onClick={onBatal} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
           <button onClick={() => onSimpan({ setuju, catatan: catatan.trim() })} disabled={wajib}

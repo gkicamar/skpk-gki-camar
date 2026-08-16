@@ -82,6 +82,14 @@ service cloud.firestore {
       allow write: if isSuper();
     }
 
+    // Unit di bawah badan pelayanan: sub bidang, pokja, atau panitia.
+    // Dipakai untuk menandai siapa pengaju PBO, tetapi pagu anggaran
+    // tetap dihitung di tingkat badan pelayanan.
+    match /unit/{id} {
+      allow read: if aktif();
+      allow write: if isSuper();
+    }
+
     match /kategoriPenerimaan/{id} {
       allow read: if aktif();
       allow write: if isSuper() || isBendahara();
