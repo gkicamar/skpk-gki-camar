@@ -1,0 +1,29 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "pbo",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "bp", "order": "ASCENDING" },
+        { "fieldPath": "periodeAnggaran", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "lpj",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "bp", "order": "ASCENDING" },
+        { "fieldPath": "periodeAnggaran", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "programKerja",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tahunPelayanan", "order": "ASCENDING" },
+        { "fieldPath": "bp", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

@@ -1,0 +1,41 @@
+rules_version = '2';
+
+// Berkas lampiran LPJ: foto nota, kuitansi, dan dokumentasi kegiatan.
+// Disimpan per badan pelayanan supaya izinnya bisa dipisah.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function masuk() { return request.auth != null; }
+
+    function akun() {
+      return firestore.get(/databases/(default)/documents/pengguna/$(request.auth.uid)).data;
+    }
+
+    function aktif() { return masuk() && akun().aktif == true; }
+    function peran() { return aktif() ? akun().peran : 'tamu'; }
+    function bpSaya() { return aktif() && akun().bp is list ? akun().bp : []; }
+
+    function majelis() {
+      return peran() in ['super', 'ketua', 'bendahara', 'pembina'];
+    }
+
+    function berkasSah() {
+      return request.resource.size < 2 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*')
+            || request.resource.contentType == 'application/pdf');
+    }
+
+    match /lampiran/{bp}/{berkas} {
+      allow read: if majelis() || (peran() == 'pengurus' && bp in bpSaya());
+      allow write: if berkasSah()
+                   && (peran() in ['super', 'bendahara']
+                       || (peran() == 'pengurus' && bp in bpSaya()));
+      allow delete: if peran() == 'super';
+    }
+
+    match /{semua=**} {
+      allow read, write: if false;
+    }
+  }
+}
