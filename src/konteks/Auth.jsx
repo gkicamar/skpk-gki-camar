@@ -77,7 +77,6 @@ export function PenyediaAuth({ children }) {
     masuk, keluar, gantiSandi,
     peran: profil?.peran || null,
     bpSaya: profil?.bp || [],
-    unitSaya: profil?.unit || [],
     aktif: profil?.aktif === true,
   };
 

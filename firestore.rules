@@ -34,18 +34,6 @@ service cloud.firestore {
       return aktif() && akun().bp is list ? akun().bp : [];
     }
 
-    // Unit yang menjadi tanggung jawab pengguna. Kosong berarti mencakup
-    // seluruh badan pelayanan, biasanya untuk ketua bidang.
-    function unitSaya() {
-      return aktif() && akun().unit is list ? akun().unit : [];
-    }
-
-    function seluruhBP() { return unitSaya().size() == 0; }
-
-    function bolehUnit(bp, unitId) {
-      return bp in bpSaya() && (seluruhBP() || unitId in unitSaya());
-    }
-
     function isSuper()     { return peran() == 'super'; }
     function isKetua()     { return peran() == 'ketua'; }
     function isBendahara() { return peran() == 'bendahara'; }
@@ -100,14 +88,6 @@ service cloud.firestore {
       allow write: if isSuper();
     }
 
-    // Unit di bawah badan pelayanan: sub bidang, pokja, atau panitia.
-    // Dipakai untuk menandai siapa pengaju PBO, tetapi pagu anggaran
-    // tetap dihitung di tingkat badan pelayanan.
-    match /unit/{id} {
-      allow read: if aktif();
-      allow write: if isSuper();
-    }
-
     match /kategoriPenerimaan/{id} {
       allow read: if aktif();
       allow write: if isSuper() || isBendahara();
@@ -140,25 +120,25 @@ service cloud.firestore {
         pusat()
         || (isPembina() && resource.data.bp in bpSaya())
         || resource.data.get('rahasia', false) != true
-        || bolehUnit(resource.data.bp, resource.data.get('unitId', ''))
+        || resource.data.bp in bpSaya()
       );
 
       allow create: if isSuper()
                     || (isPembina() && request.resource.data.bp in bpSaya())
                     || (isPengurus()
-                        && bolehUnit(request.resource.data.bp, request.resource.data.get('unitId', ''))
+                        && request.resource.data.bp in bpSaya()
                         && request.resource.data.status == 'draf');
 
       allow update: if isSuper()
                     || (isPembina() && resource.data.bp in bpSaya())
                     || (isPengurus()
-                        && bolehUnit(resource.data.bp, resource.data.get('unitId', ''))
+                        && resource.data.bp in bpSaya()
                         && resource.data.status in ['draf', 'dikembalikan']
                         && request.resource.data.status in ['draf', 'diajukan']);
 
       allow delete: if isSuper()
                     || (isPengurus()
-                        && bolehUnit(resource.data.bp, resource.data.get('unitId', ''))
+                        && resource.data.bp in bpSaya()
                         && resource.data.status == 'draf');
     }
 
@@ -170,19 +150,19 @@ service cloud.firestore {
     match /pbo/{id} {
       allow read: if pusat()
                   || (isPembina() && resource.data.bp in bpSaya())
-                  || (isPengurus() && bolehUnit(resource.data.bp, resource.data.get('unitId', '')));
+                  || (isPengurus() && resource.data.bp in bpSaya());
 
       allow create: if isSuper()
                     || (isPengurus()
-                        && bolehUnit(request.resource.data.bp, request.resource.data.get('unitId', ''))
+                        && request.resource.data.bp in bpSaya()
                         && request.resource.data.status == 'diajukan');
 
       allow update: if isSuper() || isBendahara() || isKetua()
-                    || (isPengurus() && bolehUnit(resource.data.bp, resource.data.get('unitId', ''))
+                    || (isPengurus() && resource.data.bp in bpSaya()
                         && resource.data.status in ['diajukan', 'dikembalikan']);
 
       allow delete: if isSuper()
-                    || (isPengurus() && bolehUnit(resource.data.bp, resource.data.get('unitId', ''))
+                    || (isPengurus() && resource.data.bp in bpSaya()
                         && resource.data.status == 'diajukan');
     }
 
@@ -191,18 +171,18 @@ service cloud.firestore {
     match /lpj/{id} {
       allow read: if pusat()
                   || (isPembina() && resource.data.bp in bpSaya())
-                  || (isPengurus() && bolehUnit(resource.data.bp, resource.data.get('unitId', '')));
+                  || (isPengurus() && resource.data.bp in bpSaya());
 
       allow create: if isSuper()
-                    || (isPengurus() && bolehUnit(request.resource.data.bp, request.resource.data.get('unitId', '')));
+                    || (isPengurus() && request.resource.data.bp in bpSaya());
 
       allow update: if isSuper() || isBendahara()
                     || (isPembina() && resource.data.bp in bpSaya())
-                    || (isPengurus() && bolehUnit(resource.data.bp, resource.data.get('unitId', ''))
+                    || (isPengurus() && resource.data.bp in bpSaya()
                         && resource.data.status in ['draf', 'dikembalikan']);
 
       allow delete: if isSuper()
-                    || (isPengurus() && bolehUnit(resource.data.bp, resource.data.get('unitId', ''))
+                    || (isPengurus() && resource.data.bp in bpSaya()
                         && resource.data.status == 'draf');
     }
 
