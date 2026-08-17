@@ -81,7 +81,7 @@ export function DataInduk({ beritahu }) {
   const simpanUnit = async (d) => {
     const id = d.id || `${d.bp}_${Date.now()}`;
     await setDoc(doc(db, 'unit', id), {
-      bp: d.bp, nama: d.nama.trim(), jenis: d.jenis, periode: d.periode.trim(),
+      bp: d.bp, nama: d.nama.trim(), jenis: d.jenis, periode: d.periode.trim(), rahasia: d.rahasia === true,
       urut: Number(d.urut) || 99, aktif: d.aktif, diperbarui: serverTimestamp(),
     }, { merge: true });
     setFormUnit(null);
@@ -143,7 +143,7 @@ export function DataInduk({ beritahu }) {
               Sub bidang, pokja, atau panitia yang mengajukan PBO sendiri. Boleh dikosongkan.
             </p>
           </div>
-          <button onClick={() => setFormUnit({ baru: true, bp: bp[0]?.kode || '', nama: '', jenis: 'Sub Bidang', periode: '', urut: unit.length + 1, aktif: true })}
+          <button onClick={() => setFormUnit({ baru: true, bp: bp[0]?.kode || '', nama: '', jenis: 'Sub Bidang', periode: '', urut: unit.length + 1, aktif: true, rahasia: false })}
             disabled={bp.length === 0}
             className="px-2.5 py-1.5 text-xs border border-stone-300 rounded-md hover:bg-stone-50 disabled:opacity-40 flex items-center gap-1 shrink-0">
             <Plus size={13} /> Tambah
@@ -165,7 +165,7 @@ export function DataInduk({ beritahu }) {
                       <div className="min-w-0">
                         <p className={`text-[13px] ${u.aktif ? '' : 'text-stone-400'}`}>{u.nama}</p>
                         <p className="text-[11px] text-stone-500">
-                          {u.jenis}{u.periode ? ` · ${u.periode}` : ''}{u.aktif ? '' : ' · nonaktif'}
+                          {u.jenis}{u.periode ? ` · ${u.periode}` : ''}{u.rahasia ? ' · rahasia' : ''}{u.aktif ? '' : ' · nonaktif'}
                         </p>
                       </div>
                       <div className="flex gap-1 shrink-0">
@@ -354,6 +354,20 @@ function FormUnit({ isi, bp, onBatal, onSimpan }) {
           <label className="flex items-center gap-2.5 cursor-pointer">
             <input type="checkbox" checked={d.aktif} onChange={(e) => setD({ ...d, aktif: e.target.checked })} />
             <span className="text-sm">Aktif dan boleh mengajukan PBO</span>
+          </label>
+
+          <label className={`flex items-start gap-2.5 cursor-pointer px-3 py-2.5 rounded-md border ${
+            d.rahasia ? 'border-amber-300 bg-amber-50' : 'border-stone-200'}`}>
+            <input type="checkbox" checked={d.rahasia === true}
+              onChange={(e) => setD({ ...d, rahasia: e.target.checked })} className="mt-0.5" />
+            <span className="min-w-0">
+              <span className="text-sm block">Tandai rahasia</span>
+              <span className="text-[11px] text-stone-600 block mt-0.5">
+                Program kerja, PBO, dan LPJ unit ini hanya bisa dibuka pengurusnya sendiri,
+                pembina badan pelayanannya, bendahara, ketua, dan super user. Unit lain di badan
+                pelayanan yang sama pun tidak bisa. Pakai ini untuk remunerasi, JKH, dan gaji karyawan.
+              </span>
+            </span>
           </label>
         </div>
 

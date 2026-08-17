@@ -11,6 +11,7 @@ import {
 export default function KelolaPengguna({ beritahu }) {
   const [pengguna, setPengguna] = useState([]);
   const [bp, setBp] = useState([]);
+  const [unit, setUnit] = useState([]);
   const [cari, setCari] = useState('');
   const [saring, setSaring] = useState('semua');
   const [form, setForm] = useState(null);
@@ -21,6 +22,9 @@ export default function KelolaPengguna({ beritahu }) {
 
   useEffect(() => onSnapshot(collection(db, 'badanPelayanan'), (s) =>
     setBp(s.docs.map((d) => ({ kode: d.id, ...d.data() })))), []);
+
+  useEffect(() => onSnapshot(collection(db, 'unit'), (s) =>
+    setUnit(s.docs.map((d) => ({ id: d.id, ...d.data() })))), []);
 
   const daftar = useMemo(() => pengguna
     .filter((p) => saring === 'semua' || p.peran === saring)
@@ -62,7 +66,7 @@ export default function KelolaPengguna({ beritahu }) {
           <option value="semua">Semua peran</option>
           {DAFTAR_PERAN.map((p) => <option key={p.kode} value={p.kode}>{p.nama}</option>)}
         </select>
-        <button onClick={() => setForm({ baru: true, uid: '', nama: '', email: '', peran: 'pengurus', bp: [], aktif: true })}
+        <button onClick={() => setForm({ baru: true, uid: '', nama: '', email: '', peran: 'pengurus', bp: [], unit: [], aktif: true })}
           className="px-3 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 flex items-center gap-1.5">
           <UserPlus size={15} /> Daftarkan akun
         </button>
@@ -109,6 +113,11 @@ export default function KelolaPengguna({ beritahu }) {
                     {butuhBP(p.peran)
                       ? (p.bp?.length ? p.bp.map(namaBP).join(', ') : <span className="text-amber-700">belum ditetapkan</span>)
                       : <span className="text-stone-400">seluruh gereja</span>}
+                    {p.peran === 'pengurus' && p.unit?.length > 0 && (
+                      <span className="block text-[11px] text-amber-800 mt-0.5">
+                        dibatasi {p.unit.length} unit
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-center">
                     <button onClick={() => ubahAktif(p)} title={p.aktif ? 'Nonaktifkan' : 'Aktifkan'}
@@ -133,7 +142,7 @@ export default function KelolaPengguna({ beritahu }) {
         </div>
       </div>
 
-      {form && <FormAkun isi={form} bp={bp} onBatal={() => setForm(null)} onSimpan={simpan} />}
+      {form && <FormAkun isi={form} bp={bp} unit={unit} onBatal={() => setForm(null)} onSimpan={simpan} />}
 
       {konfirmasi && (
         <div className="fixed inset-0 bg-stone-900/40 flex items-center justify-center p-4 z-50">
@@ -158,16 +167,28 @@ export default function KelolaPengguna({ beritahu }) {
   );
 }
 
-function FormAkun({ isi, bp, onBatal, onSimpan }) {
-  const [d, setD] = useState({ ...isi });
+function FormAkun({ isi, bp, unit, onBatal, onSimpan }) {
+  const [d, setD] = useState({ unit: [], ...isi });
   const perluBP = butuhBP(d.peran);
   const sah = d.uid.trim().length > 12 && d.nama.trim() && d.email.trim()
               && (!perluBP || d.bp.length > 0);
 
-  const alihBP = (kode) => setD((v) => ({
+  const alihBP = (kode) => setD((v) => {
+    const bpBaru = v.bp.includes(kode) ? v.bp.filter((x) => x !== kode) : [...v.bp, kode];
+    // Lepaskan unit yang induknya sudah tidak dipilih lagi.
+    const unitBaru = (v.unit || []).filter((id) => {
+      const u = unit.find((x) => x.id === id);
+      return u && bpBaru.includes(u.bp);
+    });
+    return { ...v, bp: bpBaru, unit: unitBaru };
+  });
+
+  const alihUnit = (id) => setD((v) => ({
     ...v,
-    bp: v.bp.includes(kode) ? v.bp.filter((x) => x !== kode) : [...v.bp, kode],
+    unit: (v.unit || []).includes(id) ? v.unit.filter((x) => x !== id) : [...(v.unit || []), id],
   }));
+
+  const unitTersedia = unit.filter((u) => d.bp.includes(u.bp) && u.aktif !== false);
 
   return (
     <div className="fixed inset-0 bg-stone-900/40 flex items-start md:items-center justify-center md:p-4 z-50 overflow-y-auto">
@@ -254,6 +275,28 @@ function FormAkun({ isi, bp, onBatal, onSimpan }) {
             </div>
           )}
 
+          {d.peran === 'pengurus' && unitTersedia.length > 0 && (
+            <div>
+              <label className="block text-[11px] text-stone-500 mb-1.5">Batasi ke unit tertentu</label>
+              <div className="flex flex-wrap gap-1.5">
+                {unitTersedia.map((u) => (
+                  <button key={u.id} type="button" onClick={() => alihUnit(u.id)}
+                    className={`text-[12px] px-2.5 py-1.5 rounded-md border ${
+                      (d.unit || []).includes(u.id)
+                        ? 'border-teal-600 bg-teal-50 text-teal-900'
+                        : 'border-stone-300 hover:bg-stone-50'}`}>
+                    {u.nama}{u.rahasia ? ' · rahasia' : ''}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-stone-500 mt-1.5">
+                {(d.unit || []).length === 0
+                  ? 'Tidak dipilih berarti mencakup seluruh badan pelayanan, biasanya untuk ketua bidang.'
+                  : `Hanya melihat ${d.unit.length} unit terpilih, termasuk yang ditandai rahasia.`}
+              </p>
+            </div>
+          )}
+
           <label className="flex items-center gap-2.5 cursor-pointer">
             <input type="checkbox" checked={d.aktif} onChange={(e) => setD({ ...d, aktif: e.target.checked })} />
             <span className="text-sm">Akun aktif dan boleh masuk</span>
@@ -262,7 +305,7 @@ function FormAkun({ isi, bp, onBatal, onSimpan }) {
 
         <div className="px-5 py-4 border-t border-stone-200 flex justify-end gap-2 sticky bottom-0 bg-white">
           <button onClick={onBatal} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
-          <button onClick={() => onSimpan({ uid: d.uid, nama: d.nama.trim(), email: d.email, peran: d.peran, bp: d.bp, aktif: d.aktif })}
+          <button onClick={() => onSimpan({ uid: d.uid, nama: d.nama.trim(), email: d.email, peran: d.peran, bp: d.bp, unit: d.unit || [], aktif: d.aktif })}
             disabled={!sah}
             className="px-4 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 disabled:bg-stone-300 flex items-center gap-1.5">
             <Save size={15} /> Simpan

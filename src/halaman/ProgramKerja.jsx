@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, getDoc, serverTimestamp, query, where } from 'firebase/firestore';
 import { db } from '../firebase/config.js';
 import { useAuth } from '../konteks/Auth.jsx';
 import { SelBulan } from '../komponen/Dasar.jsx';
@@ -9,7 +9,7 @@ import {
 } from '../util/format.js';
 import {
   Plus, Pencil, Trash2, X, Save, ChevronDown, ChevronRight, Printer,
-  Send, CheckCircle2, Undo2, Lock, CornerDownRight,
+  Send, CheckCircle2, Undo2, Lock, CornerDownRight, EyeOff, Layers,
 } from 'lucide-react';
 
 const STATUS = {
@@ -19,15 +19,17 @@ const STATUS = {
   disetujui:    { label: 'Disetujui',    warna: 'bg-teal-50 text-teal-900' },
 };
 
-const idProgram = (tahun, bp) => `${tahun}_${bp}`;
+const idProgram = (tahun, bp, unitId) => (unitId ? `${tahun}_${bp}_${unitId}` : `${tahun}_${bp}`);
 const totalDok = (d) => (d?.baris || []).reduce((s, b) => s + jumlahBulan(b.bulan), 0);
 
 export default function ProgramKerja({ beritahu }) {
-  const { profil, peran, bpSaya } = useAuth();
+  const { profil, peran, bpSaya, unitSaya } = useAuth();
   const [bpDaftar, setBpDaftar] = useState([]);
   const [unitDaftar, setUnitDaftar] = useState([]);
   const [tahun, setTahun] = useState(tpBerjalan());
   const [bpAktif, setBpAktif] = useState('');
+  const [unitAktif, setUnitAktif] = useState('');
+  const [rekap, setRekap] = useState([]);
   const [dok, setDok] = useState(null);
   const [memuat, setMemuat] = useState(true);
   const [buka, setBuka] = useState(null);
@@ -49,26 +51,49 @@ export default function ProgramKerja({ beritahu }) {
   useEffect(() => onSnapshot(collection(db, 'unit'), (s) =>
     setUnitDaftar(s.docs.map((x) => ({ id: x.id, ...x.data() })))), []);
 
+  // Saat berpindah badan pelayanan, pilih unit pertama yang boleh diakses.
   useEffect(() => {
     if (!bpAktif) return;
-    setMemuat(true);
-    return onSnapshot(doc(db, 'programKerja', idProgram(tahun, bpAktif)), (s) => {
-      setDok(s.exists() ? { id: s.id, ...s.data() } : null);
-      setMemuat(false);
-    }, () => setMemuat(false));
-  }, [tahun, bpAktif]);
+    const boleh = unitDaftar.filter((u) => u.bp === bpAktif && u.aktif !== false)
+      .filter((u) => peran !== 'pengurus' || unitSaya.length === 0 || unitSaya.includes(u.id));
+    setUnitAktif((v) => (v && boleh.some((u) => u.id === v) ? v
+      : (peran === 'pengurus' && unitSaya.length > 0 ? (boleh[0]?.id || '') : '')));
+  }, [bpAktif, unitDaftar, peran, unitSaya]);
+
+  // Rekap seluruh unit pada badan pelayanan ini, untuk yang berhak melihat.
+  useEffect(() => {
+    if (!bpAktif) { setRekap([]); return; }
+    return onSnapshot(
+      query(collection(db, 'programKerja'), where('bp', '==', bpAktif), where('tahunPelayanan', '==', tahun)),
+      (s) => setRekap(s.docs.map((x) => ({ id: x.id, ...x.data() }))),
+      () => setRekap([]),
+    );
+  }, [bpAktif, tahun]);
 
   useEffect(() => {
     if (!bpAktif) return;
-    getDoc(doc(db, 'programKerja', idProgram(tahun - 1, bpAktif)))
+    setMemuat(true);
+    return onSnapshot(doc(db, 'programKerja', idProgram(tahun, bpAktif, unitAktif)), (s) => {
+      setDok(s.exists() ? { id: s.id, ...s.data() } : null);
+      setMemuat(false);
+    }, () => setMemuat(false));
+  }, [tahun, bpAktif, unitAktif]);
+
+  useEffect(() => {
+    if (!bpAktif) return;
+    getDoc(doc(db, 'programKerja', idProgram(tahun - 1, bpAktif, unitAktif)))
       .then((s) => setLalu(s.exists() ? totalDok(s.data()) : null))
       .catch(() => setLalu(null));
-  }, [tahun, bpAktif]);
+  }, [tahun, bpAktif, unitAktif]);
 
   const bpObj = bpDaftar.find((b) => b.kode === bpAktif);
   const unitBP = unitDaftar.filter((u) => u.bp === bpAktif && u.aktif !== false)
     .sort((a, b) => (a.urut || 99) - (b.urut || 99));
-  const milikSaya = bpSaya.includes(bpAktif);
+  const seluruhBP = unitSaya.length === 0;
+  const unitTerpakai = unitBP.filter((u) => peran !== 'pengurus' || seluruhBP || unitSaya.includes(u.id));
+  const bolehUnitIni = bpSaya.includes(bpAktif) && (seluruhBP || unitSaya.includes(unitAktif));
+  const milikSaya = peran === 'pengurus' ? bolehUnitIni : bpSaya.includes(bpAktif);
+  const unitObj = unitDaftar.find((u) => u.id === unitAktif);
   const status = dok?.status || 'draf';
 
   const bolehSunting =
@@ -84,11 +109,11 @@ export default function ProgramKerja({ beritahu }) {
   const totalBaris = (b) => jumlahBulan(b.bulan) + anak(b.id).reduce((s, a) => s + jumlahBulan(a.bulan), 0);
   const total = totalDok(dok);
   const totalRutin = induk.filter((b) => b.sifat === 'Rutin').reduce((s, b) => s + totalBaris(b), 0);
-  const namaUnit = (id) => unitDaftar.find((u) => u.id === id)?.nama || '';
 
   const simpanDok = async (perubahan, pesan) => {
-    await setDoc(doc(db, 'programKerja', idProgram(tahun, bpAktif)), {
-      tahunPelayanan: tahun, bp: bpAktif,
+    await setDoc(doc(db, 'programKerja', idProgram(tahun, bpAktif, unitAktif)), {
+      tahunPelayanan: tahun, bp: bpAktif, unitId: unitAktif,
+      rahasia: unitDaftar.find((u) => u.id === unitAktif)?.rahasia === true,
       status: dok?.status || 'draf', baris: dok?.baris || [],
       ...perubahan,
       diperbarui: serverTimestamp(), diperbaruiOleh: profil?.nama || '',
@@ -148,6 +173,16 @@ export default function ProgramKerja({ beritahu }) {
             ))}
           </select>
         </div>
+        <div className="min-w-[180px] flex-1">
+          <label className="block text-[11px] text-stone-500 mb-1">Unit pelaksana</label>
+          <select value={unitAktif} onChange={(e) => { setUnitAktif(e.target.value); setBuka(null); }}
+            className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm bg-white">
+            {(peran !== 'pengurus' || seluruhBP) && <option value="">Badan pelayanan langsung</option>}
+            {unitTerpakai.map((u) => (
+              <option key={u.id} value={u.id}>{u.nama} · {u.jenis}{u.rahasia ? ' · rahasia' : ''}</option>
+            ))}
+          </select>
+        </div>
         <div>
           <label className="block text-[11px] text-stone-500 mb-1">Tahun pelayanan</label>
           <select value={tahun} onChange={(e) => setTahun(Number(e.target.value))}
@@ -165,7 +200,14 @@ export default function ProgramKerja({ beritahu }) {
         <div className="flex flex-wrap justify-between items-start gap-3">
           <div className="min-w-0">
             <h2 className="text-base font-medium">Rencana program kerja dan anggaran</h2>
-            <p className="text-sm text-stone-600">{bpObj?.nama || bpAktif}</p>
+            <p className="text-sm text-stone-600">
+              {bpObj?.nama || bpAktif}{unitObj ? ` · ${unitObj.nama}` : ''}
+            </p>
+            {unitObj?.rahasia && (
+              <p className="text-[11px] text-amber-800 mt-1 inline-flex items-center gap-1">
+                <EyeOff size={12} /> Rahasia — hanya unit ini, pembina, dan bendahara yang bisa melihat
+              </p>
+            )}
             <p className="text-[11px] text-stone-500 mt-0.5">
               April {tahun} sampai Maret {tahun + 1}
               {!milikSaya && peran === 'pengurus' && ' · hanya dapat dilihat'}
@@ -245,6 +287,50 @@ export default function ProgramKerja({ beritahu }) {
         ))}
       </div>
 
+      {rekap.length > 1 && (
+        <div className="bg-white rounded-lg border border-stone-200 overflow-hidden">
+          <div className="px-4 py-3 border-b border-stone-100">
+            <h3 className="text-sm font-medium flex items-center gap-1.5">
+              <Layers size={15} className="text-stone-500" /> Seluruh unit · {bpObj?.nama}
+            </h3>
+            <p className="text-[11px] text-stone-500">
+              Pagu badan pelayanan dihitung dari penjumlahan semua unit di bawahnya
+            </p>
+          </div>
+          <table className="w-full text-sm">
+            <tbody>
+              {rekap.slice().sort((a, b) => (a.unitId || '').localeCompare(b.unitId || '')).map((r) => {
+                const u = unitDaftar.find((x) => x.id === r.unitId);
+                const st = STATUS[r.status || 'draf'];
+                const ini = (r.unitId || '') === (unitAktif || '');
+                return (
+                  <tr key={r.id} className={`border-b border-stone-50 ${ini ? 'bg-stone-50' : ''}`}>
+                    <td className="px-4 py-2">
+                      <button onClick={() => setUnitAktif(r.unitId || '')}
+                        className="text-left hover:text-teal-700">
+                        {u ? u.nama : 'Badan pelayanan langsung'}
+                        {u?.rahasia && <EyeOff size={11} className="inline ml-1.5 text-amber-700" />}
+                      </button>
+                      {u && <span className="text-[11px] text-stone-500 ml-2">{u.jenis}</span>}
+                    </td>
+                    <td className="px-4 py-2 w-32">
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded ${st.warna}`}>{st.label}</span>
+                    </td>
+                    <td className="px-4 py-2 text-right w-40">{rp(totalDok(r))}</td>
+                  </tr>
+                );
+              })}
+              <tr className="border-t-2 border-stone-800 bg-stone-50">
+                <td className="px-4 py-2.5 font-medium" colSpan={2}>Pagu badan pelayanan</td>
+                <td className="px-4 py-2.5 text-right font-medium">
+                  {rp(rekap.reduce((s, r) => s + totalDok(r), 0))}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div className="bg-white rounded-lg border border-stone-200 overflow-hidden print-flat">
         <div className="px-4 py-3 border-b border-stone-100 flex justify-between items-center gap-3">
           <div>
@@ -276,10 +362,10 @@ export default function ProgramKerja({ beritahu }) {
             {induk.map((b) => (
               <Kegiatan key={b.id} baris={b} anak={anak(b.id)} bulan={bulan}
                 terbuka={buka === b.id} onBuka={() => setBuka(buka === b.id ? null : b.id)}
-                total={totalBaris(b)} bolehSunting={bolehSunting} namaUnit={namaUnit}
+                total={totalBaris(b)} bolehSunting={bolehSunting}
                 onUbahBulan={ubahBulan}
                 onSunting={(x) => setFormBaris({ ...x, baru: false })}
-                onTambahAnak={() => setFormBaris({ baru: true, indukId: b.id, unitId: b.unitId || '' })}
+                onTambahAnak={() => setFormBaris({ baru: true, indukId: b.id })}
                 onHapus={setHapus} />
             ))}
           </div>
@@ -295,7 +381,7 @@ export default function ProgramKerja({ beritahu }) {
       )}
 
       {formBaris && (
-        <FormBaris isi={formBaris} bulan={bulan} unitBP={unitBP}
+        <FormBaris isi={formBaris} bulan={bulan}
           onBatal={() => setFormBaris(null)} onSimpan={simpanBaris} />
       )}
       {dialogVerifikasi && (
@@ -322,9 +408,8 @@ export default function ProgramKerja({ beritahu }) {
 
 /* ─────────── Satu kegiatan ─────────── */
 
-function Kegiatan({ baris, anak, bulan, terbuka, onBuka, total, bolehSunting, namaUnit, onUbahBulan, onSunting, onTambahAnak, onHapus }) {
+function Kegiatan({ baris, anak, bulan, terbuka, onBuka, total, bolehSunting, onUbahBulan, onSunting, onTambahAnak, onHapus }) {
   const adaAnak = anak.length > 0;
-  const unit = namaUnit(baris.unitId);
 
   return (
     <div>
@@ -340,7 +425,6 @@ function Kegiatan({ baris, anak, bulan, terbuka, onBuka, total, bolehSunting, na
                 baris.sifat === 'Rutin' ? 'bg-stone-100 text-stone-700' : 'bg-blue-50 text-blue-900'}`}>
                 {baris.sifat}
               </span>
-              {unit && <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-900">{unit}</span>}
             </div>
             {baris.tujuan && <p className="text-[12px] text-stone-600 mt-0.5">{baris.tujuan}</p>}
           </div>
@@ -441,13 +525,12 @@ function GridBulan({ bulan, nilai = {}, kunci, onUbah }) {
 
 /* ─────────── Formulir kegiatan, lengkap sejak awal ─────────── */
 
-function FormBaris({ isi, bulan, unitBP, onBatal, onSimpan }) {
+function FormBaris({ isi, bulan, onBatal, onSimpan }) {
   const anak = Boolean(isi.indukId);
   const [d, setD] = useState({
     id: isi.id || 'K' + Date.now(),
     indukId: isi.indukId ?? null,
     nama: isi.nama || '',
-    unitId: isi.unitId || '',
     sifat: isi.sifat || 'Rutin',
     tujuan: isi.tujuan || '',
     indikator: isi.indikator || '',
@@ -493,17 +576,6 @@ function FormBaris({ isi, bulan, unitBP, onBatal, onSimpan }) {
                 <p className="text-[11px] text-stone-500 mt-1">Non rutin ditinjau ulang tiap tahun</p>
               </div>
             )}
-            <div>
-              <label className="block text-[11px] text-stone-500 mb-1">Unit pelaksana</label>
-              <select value={d.unitId} onChange={(e) => setD({ ...d, unitId: e.target.value })}
-                className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm bg-white">
-                <option value="">Badan pelayanan langsung</option>
-                {unitBP.map((u) => <option key={u.id} value={u.id}>{u.nama} · {u.jenis}</option>)}
-              </select>
-              <p className="text-[11px] text-stone-500 mt-1">
-                {unitBP.length === 0 ? 'Belum ada unit. Bisa ditambah di Data induk.' : 'Menentukan siapa yang mengajukan PBO'}
-              </p>
-            </div>
           </div>
 
           <div>
