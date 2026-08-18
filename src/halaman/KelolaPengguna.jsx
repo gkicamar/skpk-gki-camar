@@ -3,19 +3,22 @@ import {
   collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../firebase/config.js';
+import { useAuth } from '../konteks/Auth.jsx';
 import { DAFTAR_PERAN, PERAN, butuhBP, namaPeran } from '../util/peran.js';
 import { susunHierarki } from './Beranda.jsx';
 import {
-  UserPlus, Pencil, Trash2, Search, ShieldCheck, ShieldOff, X, Save, Info, Copy, CheckCircle2,
+  UserPlus, Pencil, Trash2, Search, ShieldCheck, ShieldOff, X, Save, Info, Copy, KeyRound,
 } from 'lucide-react';
 
 export default function KelolaPengguna({ beritahu }) {
+  const { kirimSetelUlang } = useAuth();
   const [pengguna, setPengguna] = useState([]);
   const [bp, setBp] = useState([]);
   const [cari, setCari] = useState('');
   const [saring, setSaring] = useState('semua');
   const [form, setForm] = useState(null);
   const [konfirmasi, setKonfirmasi] = useState(null);
+  const [konfirmasiSandi, setKonfirmasiSandi] = useState(null);
 
   useEffect(() => onSnapshot(collection(db, 'pengguna'), (s) =>
     setPengguna(s.docs.map((d) => ({ uid: d.id, ...d.data() })))), []);
@@ -51,6 +54,18 @@ export default function KelolaPengguna({ beritahu }) {
 
   const namaBP = (k) => bp.find((b) => b.kode === k)?.nama || k;
 
+  // Kata sandi tersimpan teracak dan tidak bisa dibaca siapa pun, termasuk
+  // super user. Yang bisa dilakukan hanya mengirim tautan setel ulang.
+  const setelUlang = async (p) => {
+    try {
+      await kirimSetelUlang(p.email);
+      beritahu(`Tautan setel ulang dikirim ke ${p.email}`);
+    } catch (e) {
+      beritahu('Gagal mengirim tautan. Periksa alamat emailnya.', 'info');
+    }
+    setKonfirmasiSandi(null);
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-4 pb-10">
       <div className="bg-white rounded-lg border border-stone-200 p-4 flex flex-wrap gap-3 items-center">
@@ -73,8 +88,9 @@ export default function KelolaPengguna({ beritahu }) {
       <p className="text-[12px] bg-stone-50 border border-stone-200 text-stone-700 px-3 py-2.5 rounded flex items-start gap-1.5">
         <Info size={14} className="mt-px shrink-0" />
         Akun dibuat dua langkah. Pertama buat email dan sandi di Firebase Console pada menu Authentication,
-        lalu salin UID-nya ke sini beserta peran dan badan pelayanannya. Cara ini menjaga agar tidak ada
-        yang bisa mendaftarkan dirinya sendiri.
+        lalu salin UID-nya ke sini beserta peran dan badan pelayanannya.
+        Pakai alamat bertanda plus seperti gkicamar+bendahara@gmail.com supaya seluruh tautan setel ulang
+        sandi masuk ke satu kotak surat yang Anda pegang.
       </p>
 
       <div className="bg-white rounded-lg border border-stone-200 overflow-hidden">
@@ -123,6 +139,8 @@ export default function KelolaPengguna({ beritahu }) {
                   </td>
                   <td className="px-4 py-2.5 text-right">
                     <div className="flex gap-1 justify-end">
+                      <button onClick={() => setKonfirmasiSandi(p)} title="Kirim tautan setel ulang sandi"
+                        className="p-1.5 text-stone-400 hover:text-amber-700"><KeyRound size={14} /></button>
                       <button onClick={() => setForm({ ...p, baru: false })}
                         className="p-1.5 text-stone-400 hover:text-teal-700"><Pencil size={14} /></button>
                       <button onClick={() => setKonfirmasi(p)}
@@ -137,6 +155,28 @@ export default function KelolaPengguna({ beritahu }) {
       </div>
 
       {form && <FormAkun isi={form} bp={bp} onBatal={() => setForm(null)} onSimpan={simpan} />}
+
+      {konfirmasiSandi && (
+        <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center p-4 py-10 z-50 overflow-y-auto overscroll-contain">
+          <div className="bg-white rounded-lg w-full max-w-sm p-5 my-auto mx-auto">
+            <h3 className="text-base font-medium mb-1.5">Setel ulang kata sandi</h3>
+            <p className="text-sm text-stone-600 mb-3">
+              Tautan setel ulang akan dikirim ke {konfirmasiSandi.email}.
+              Kata sandi tidak bisa dilihat siapa pun, termasuk Anda, jadi ini satu-satunya cara.
+            </p>
+            <p className="text-[12px] bg-stone-50 text-stone-700 px-3 py-2 rounded mb-4">
+              Kalau alamat itu memakai tanda plus pada Gmail Anda, tautannya masuk ke kotak surat Anda sendiri
+              dan tinggal diteruskan ke yang bersangkutan.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setKonfirmasiSandi(null)}
+                className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
+              <button onClick={() => setelUlang(konfirmasiSandi)}
+                className="px-3 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800">Kirim tautan</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {konfirmasi && (
         <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center p-4 z-50 overflow-y-auto overscroll-contain">

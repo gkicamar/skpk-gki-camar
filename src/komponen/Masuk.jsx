@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, LogIn, KeyRound, AlertTriangle } from 'lucide-react';
+import { Eye, EyeOff, LogIn, KeyRound, AlertTriangle, MailCheck } from 'lucide-react';
 import { Logo } from './Dasar.jsx';
 import { useAuth } from '../konteks/Auth.jsx';
 
 export default function Masuk() {
-  const { masuk, galat, setGalat } = useAuth();
+  const { masuk, galat, setGalat, kirimSetelUlang } = useAuth();
+  const [kirimUlang, setKirimUlang] = useState('');
   const [email, setEmail] = useState('');
   const [sandi, setSandi] = useState('');
   const [lihat, setLihat] = useState(false);
@@ -63,10 +64,30 @@ export default function Masuk() {
             <LogIn size={16} /> {proses ? 'Memeriksa…' : 'Masuk'}
           </button>
 
-          <p className="text-[11px] text-stone-500 text-center pt-1">
-            Akun dibuatkan super user dan diserahkan saat serah terima jabatan.
-            Kalau lupa sandi, hubungi super user untuk disetel ulang.
-          </p>
+          <div className="pt-1 text-center space-y-2">
+            <button type="button"
+              onClick={async () => {
+                if (!email.trim()) { setGalat('Isi dulu emailnya, lalu tekan lupa kata sandi.'); return; }
+                try {
+                  await kirimSetelUlang(email);
+                  setKirimUlang('Tautan setel ulang sudah dikirim ke alamat email akun ini. Kalau alamatnya memakai tanda plus, tautannya masuk ke kotak surat super user.');
+                  setGalat('');
+                } catch (e) {
+                  setGalat('Tidak dapat mengirim tautan. Pastikan emailnya benar.');
+                }
+              }}
+              className="text-[12px] text-teal-700 hover:text-teal-900 underline">
+              Lupa kata sandi
+            </button>
+            {kirimUlang && (
+              <p className="text-[11px] bg-teal-50 text-teal-900 px-3 py-2 rounded flex items-start gap-1.5 text-left">
+                <MailCheck size={14} className="mt-px shrink-0" /> {kirimUlang}
+              </p>
+            )}
+            <p className="text-[11px] text-stone-500">
+              Akun dibuatkan super user dan diserahkan saat serah terima jabatan.
+            </p>
+          </div>
         </form>
       </div>
     </div>

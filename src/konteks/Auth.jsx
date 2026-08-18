@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
   onAuthStateChanged, signInWithEmailAndPassword, signOut,
   updatePassword, reauthenticateWithCredential, EmailAuthProvider,
+  sendPasswordResetEmail,
 } from 'firebase/auth';
 import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase/config.js';
@@ -72,9 +73,15 @@ export function PenyediaAuth({ children }) {
     });
   };
 
+  // Kirim tautan setel ulang ke alamat email akun. Kalau alamatnya memakai
+  // tanda plus pada Gmail super user, seluruh tautan masuk ke satu kotak surat.
+  const kirimSetelUlang = async (email) => {
+    await sendPasswordResetEmail(auth, email.trim());
+  };
+
   const nilai = {
     userAuth, profil, memuat, galat, setGalat,
-    masuk, keluar, gantiSandi,
+    masuk, keluar, gantiSandi, kirimSetelUlang,
     peran: profil?.peran || null,
     bpSaya: profil?.bp || [],
     aktif: profil?.aktif === true,

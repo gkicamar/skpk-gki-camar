@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
   Menu, X, Home, ClipboardList, HandCoins, FileText,
-  Wallet, Target, Users, Settings, LogOut,
+  Wallet, Target, Users, Settings, LogOut, KeyRound,
 } from 'lucide-react';
+import GantiSandi from './GantiSandi.jsx';
 import { Logo } from './Dasar.jsx';
 import { useAuth } from '../konteks/Auth.jsx';
 import { boleh, namaPeran, PERAN } from '../util/peran.js';
@@ -21,6 +22,7 @@ const MENU = [
 export default function Kerangka({ tab, setTab, children }) {
   const { profil, peran, keluar } = useAuth();
   const [buka, setBuka] = useState(false);
+  const [ubahSandi, setUbahSandi] = useState(false);
 
   const menu = MENU.filter((m) => boleh(m.layar, peran));
   const grup = [...new Set(menu.map((m) => m.grup))];
@@ -70,10 +72,16 @@ export default function Kerangka({ tab, setTab, children }) {
         <div className="px-5 py-4 border-t border-stone-800">
           <p className="text-sm text-white truncate">{profil?.nama || '—'}</p>
           <p className="text-[11px] text-stone-500 mb-2.5">{namaPeran(peran)}</p>
-          <button onClick={keluar}
-            className="text-[12px] text-stone-400 hover:text-white flex items-center gap-1.5">
-            <LogOut size={13} /> Keluar
-          </button>
+          <div className="flex flex-col gap-1.5">
+            <button onClick={() => { setUbahSandi(true); setBuka(false); }}
+              className="text-[12px] text-stone-400 hover:text-white flex items-center gap-1.5">
+              <KeyRound size={13} /> Ubah kata sandi
+            </button>
+            <button onClick={keluar}
+              className="text-[12px] text-stone-400 hover:text-white flex items-center gap-1.5">
+              <LogOut size={13} /> Keluar
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -96,6 +104,8 @@ export default function Kerangka({ tab, setTab, children }) {
           {children}
         </div>
       </main>
+
+      {ubahSandi && <GantiSandi onTutup={() => setUbahSandi(false)} />}
     </div>
   );
 }
