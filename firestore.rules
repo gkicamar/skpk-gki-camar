@@ -161,18 +161,23 @@ service cloud.firestore {
         || resource.data.bp in bpSaya()
       );
 
+      // Pengajuan boleh dibuat pengurus maupun pembina, karena divisi seperti
+      // Litbang dan Sarpen menjalankan programnya sendiri tanpa departemen.
       allow create: if isSuper()
-                    || (isPengurus()
+                    || ((isPengurus() || isPembina())
                         && request.resource.data.bp in bpSaya()
-                        && request.resource.data.status == 'diajukan');
+                        && request.resource.data.status in ['diajukan', 'diperiksaPembina']);
 
+      // Verifikasi berjenjang: pembina memeriksa pengajuan departemen binaannya,
+      // lalu bendahara memberi persetujuan akhir dan mencatat pencairan.
       allow update: if isSuper() || isBendahara() || isKetua()
-                    || (isPengurus() && resource.data.bp in bpSaya()
+                    || (isPembina() && resource.data.bp in bpSaya())
+                    || ((isPengurus() || isPembina()) && resource.data.bp in bpSaya()
                         && resource.data.status in ['diajukan', 'dikembalikan']);
 
       allow delete: if isSuper()
-                    || (isPengurus() && resource.data.bp in bpSaya()
-                        && resource.data.status == 'diajukan');
+                    || ((isPengurus() || isPembina()) && resource.data.bp in bpSaya()
+                        && resource.data.status in ['diajukan', 'dikembalikan']);
     }
 
     /* ─────────── LPJ ─────────── */

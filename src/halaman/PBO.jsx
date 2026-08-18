@@ -15,10 +15,11 @@ import {
 } from 'lucide-react';
 
 const STATUS = {
-  diajukan:     { label: 'Diajukan',     warna: 'bg-amber-50 text-amber-900' },
-  dikembalikan: { label: 'Dikembalikan', warna: 'bg-red-50 text-red-900' },
-  disetujui:    { label: 'Disetujui',    warna: 'bg-blue-50 text-blue-900' },
-  dicairkan:    { label: 'Dicairkan',    warna: 'bg-teal-50 text-teal-900' },
+  diajukan:         { label: 'Menunggu pembina',   warna: 'bg-amber-50 text-amber-900' },
+  diperiksaPembina: { label: 'Menunggu bendahara', warna: 'bg-blue-50 text-blue-900' },
+  disetujui:        { label: 'Disetujui',          warna: 'bg-indigo-50 text-indigo-900' },
+  dicairkan:        { label: 'Dicairkan',          warna: 'bg-teal-50 text-teal-900' },
+  dikembalikan:     { label: 'Dikembalikan',       warna: 'bg-red-50 text-red-900' },
 };
 
 const DANA = { OPS: 'Dana Operasional', BTH: 'Dana Bethesda' };
@@ -78,24 +79,41 @@ export default function PBO({ beritahu }) {
 
   const simpan = async (isi) => {
     const id = isi.id || `${isi.bp}_${Date.now()}`;
-    await setDoc(doc(db, 'pbo', id), {
-      ...isi, total: totalPBO(isi),
-      diperbarui: serverTimestamp(), diperbaruiOleh: profil?.nama || '',
-    }, { merge: true });
-    setForm(null);
-    beritahu(isi.nomor ? `PBO ${isi.nomor} tersimpan` : 'PBO diajukan');
+    try {
+      await setDoc(doc(db, 'pbo', id), {
+        ...isi, total: totalPBO(isi),
+        diperbarui: serverTimestamp(), diperbaruiOleh: profil?.nama || '',
+      }, { merge: true });
+      setForm(null);
+      beritahu(`PBO ${isi.nomor} tersimpan`);
+    } catch (e) {
+      beritahu(e.code === 'permission-denied'
+        ? 'Tidak berhak mengajukan untuk badan pelayanan ini. Periksa penugasan akun Anda.'
+        : 'Gagal menyimpan. Periksa sambungan lalu coba lagi.', 'info');
+    }
   };
 
-  const putusan = async ({ pbo, setuju, catatan }) => {
-    const riwayat = [...(pbo.riwayat || []),
-      { tgl: hariIni(), oleh: profil?.nama || '', tindakan: setuju ? 'setuju' : 'kembalikan', catatan }].slice(-20);
-    await setDoc(doc(db, 'pbo', pbo.id), {
-      status: setuju ? 'disetujui' : 'dikembalikan',
-      catatanVerifikasi: catatan, diverifikasiOleh: profil?.nama || '',
-      tglVerifikasi: hariIni(), riwayat, diperbarui: serverTimestamp(),
-    }, { merge: true });
-    setVerifikasi(null);
-    beritahu(setuju ? 'PBO disetujui' : 'PBO dikembalikan ke pengurus');
+  // Pengajuan departemen diperiksa pembina lebih dulu, baru bendahara.
+  // Pengajuan divisi langsung ke bendahara.
+  const putusan = async ({ pbo, setuju, catatan, tahap }) => {
+    const riwayat = [...(pbo.riwayat || []), {
+      tgl: hariIni(), oleh: profil?.nama || '',
+      tindakan: setuju ? (tahap === 'pembina' ? 'periksaPembina' : 'setuju') : 'kembalikan', catatan,
+    }].slice(-20);
+    const status = !setuju ? 'dikembalikan' : tahap === 'pembina' ? 'diperiksaPembina' : 'disetujui';
+    try {
+      await setDoc(doc(db, 'pbo', pbo.id), {
+        status, riwayat, diperbarui: serverTimestamp(),
+        ...(tahap === 'pembina'
+          ? { catatanPembina: catatan, diperiksaOleh: profil?.nama || '', tglPeriksa: hariIni() }
+          : { catatanVerifikasi: catatan, diverifikasiOleh: profil?.nama || '', tglVerifikasi: hariIni() }),
+      }, { merge: true });
+      setVerifikasi(null);
+      beritahu(!setuju ? 'PBO dikembalikan ke pengaju'
+        : tahap === 'pembina' ? 'Diteruskan ke Bendahara Majelis Jemaat' : 'PBO disetujui');
+    } catch (e) {
+      beritahu('Tidak berhak memverifikasi PBO ini.', 'info');
+    }
   };
 
   const simpanCair = async ({ pbo, tglCair, akun, catatan }) => {
@@ -149,7 +167,7 @@ export default function PBO({ beritahu }) {
             className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50 flex items-center gap-1.5">
             <Printer size={15} /> Cetak
           </button>
-          {peran === 'pengurus' && bpMilik.length > 0 && (
+          {['pengurus', 'pembina', 'super'].includes(peran) && bpMilik.length > 0 && (
             <button onClick={() => setForm({ baru: true, bp: bpMilik[0].kode })}
               className="px-3 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 flex items-center gap-1.5">
               <Plus size={15} /> Ajukan PBO
@@ -160,10 +178,10 @@ export default function PBO({ beritahu }) {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          ['Diajukan', jumlahStatus('diajukan'), 'text-amber-800'],
-          ['Disetujui belum cair', jumlahStatus('disetujui'), 'text-blue-800'],
+          ['Menunggu pembina', jumlahStatus('diajukan'), 'text-amber-800'],
+          ['Menunggu bendahara', jumlahStatus('diperiksaPembina'), 'text-blue-800'],
+          ['Disetujui belum cair', jumlahStatus('disetujui'), 'text-indigo-800'],
           ['Sudah dicairkan', jumlahStatus('dicairkan'), 'text-teal-800'],
-          ['Dikembalikan', jumlahStatus('dikembalikan'), 'text-red-800'],
         ].map(([l, v, w]) => (
           <div key={l} className="bg-white rounded-lg border border-stone-200 p-4">
             <p className="text-[11px] text-stone-500 mb-1">{l}</p>
@@ -199,9 +217,10 @@ export default function PBO({ beritahu }) {
           <div className="divide-y divide-stone-100">
             {tersaring.map((p) => (
               <BarisPBO key={p.id} pbo={p} namaBP={namaBP} peran={peran} milik={bpSaya.includes(p.bp)}
+                departemen={Boolean(bpDaftar.find((b) => b.kode === p.bp)?.divisi)}
                 terbuka={buka === p.id} onBuka={() => setBuka(buka === p.id ? null : p.id)}
                 onSunting={() => setForm({ ...p, baru: false })}
-                onVerifikasi={() => setVerifikasi(p)}
+                onVerifikasi={(tahap) => setVerifikasi({ pbo: p, tahap })}
                 onCairkan={() => setCairkan(p)}
                 onHapus={() => setHapus(p)} />
             ))}
@@ -211,9 +230,10 @@ export default function PBO({ beritahu }) {
 
       {form && (
         <FormPBO isi={form} bpMilik={bpMilik} daftar={daftar} tahun={tahun} bulan={bulan}
-          peran={peran} profil={profil} onBatal={() => setForm(null)} onSimpan={simpan} beritahu={beritahu} />
+          peran={peran} profil={profil} onBatal={() => setForm(null)} onSimpan={simpan} />
       )}
-      {verifikasi && <DialogVerifikasi pbo={verifikasi} namaBP={namaBP} onBatal={() => setVerifikasi(null)} onSimpan={putusan} />}
+      {verifikasi && <DialogVerifikasi pbo={verifikasi.pbo} tahap={verifikasi.tahap} namaBP={namaBP}
+        onBatal={() => setVerifikasi(null)} onSimpan={putusan} />}
       {cairkan && <DialogCair pbo={cairkan} onBatal={() => setCairkan(null)} onSimpan={simpanCair} />}
       {hapus && (
         <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center p-4 py-10 z-50 overflow-y-auto overscroll-contain">
@@ -234,10 +254,14 @@ export default function PBO({ beritahu }) {
 
 /* ─────────── Satu baris PBO ─────────── */
 
-function BarisPBO({ pbo, namaBP, peran, milik, terbuka, onBuka, onSunting, onVerifikasi, onCairkan, onHapus }) {
+function BarisPBO({ pbo, namaBP, peran, milik, departemen, terbuka, onBuka, onSunting, onVerifikasi, onCairkan, onHapus }) {
   const st = STATUS[pbo.status] || STATUS.diajukan;
   const bendahara = ['bendahara', 'super', 'ketua'].includes(peran);
-  const bolehSunting = milik && peran === 'pengurus' && ['diajukan', 'dikembalikan'].includes(pbo.status);
+  const bolehSunting = milik && ['pengurus', 'pembina'].includes(peran)
+    && ['diajukan', 'dikembalikan'].includes(pbo.status);
+  // Pembina memeriksa pengajuan departemen binaannya yang masih menunggu.
+  const giliranPembina = pbo.status === 'diajukan' && (peran === 'super' || (peran === 'pembina' && milik));
+  const giliranBendahara = pbo.status === 'diperiksaPembina' && bendahara;
 
   return (
     <div>
@@ -269,9 +293,17 @@ function BarisPBO({ pbo, namaBP, peran, milik, terbuka, onBuka, onSunting, onVer
                 <button onClick={onSunting} className="p-1 text-stone-400 hover:text-teal-700"><Pencil size={13} /></button>
                 <button onClick={onHapus} className="p-1 text-stone-400 hover:text-red-600"><Trash2 size={13} /></button>
               </>}
-              {bendahara && pbo.status === 'diajukan' && (
-                <button onClick={onVerifikasi}
-                  className="text-[12px] px-2.5 py-1 border border-stone-300 rounded-md hover:bg-stone-50">Verifikasi</button>
+              {giliranPembina && (
+                <button onClick={() => onVerifikasi('pembina')}
+                  className="text-[12px] px-2.5 py-1 border border-stone-300 rounded-md hover:bg-stone-50">
+                  Periksa
+                </button>
+              )}
+              {giliranBendahara && (
+                <button onClick={() => onVerifikasi('bendahara')}
+                  className="text-[12px] px-2.5 py-1 border border-stone-300 rounded-md hover:bg-stone-50">
+                  Verifikasi
+                </button>
               )}
               {bendahara && pbo.status === 'disetujui' && (
                 <button onClick={onCairkan}
@@ -380,7 +412,7 @@ function BarisPBO({ pbo, namaBP, peran, milik, terbuka, onBuka, onSunting, onVer
 
 /* ─────────── Formulir pengajuan ─────────── */
 
-function FormPBO({ isi, bpMilik, daftar, tahun, bulan, peran, profil, onBatal, onSimpan, beritahu }) {
+function FormPBO({ isi, bpMilik, daftar, tahun, bulan, peran, profil, onBatal, onSimpan }) {
   const [bp, setBp] = useState(isi.bp || bpMilik[0]?.kode || '');
   const [periode, setPeriode] = useState(isi.periodeAnggaran || bulan.find((p) => p >= hariIni().slice(0, 7)) || bulan[0]);
   const [tglAjukan, setTglAjukan] = useState(isi.tglAjukan || hariIni());
@@ -434,9 +466,22 @@ function FormPBO({ isi, bpMilik, daftar, tahun, bulan, peran, profil, onBatal, o
 
   const total = baris.reduce((s, b) => s + (Number(b.nominal) || 0), 0);
   const nomor = isi.nomor || susunNomor(daftar, bp, periode);
-  const sah = bp && periode && baris.length > 0 && baris.every((b) => b.uraian && Number(b.nominal) > 0)
-    && penerima.nama.trim() && penerima.noRek.trim()
-    && (!adaTunggakan || izin);
+
+  // Departemen yang diajukan pengurus diperiksa pembina lebih dulu.
+  // Divisi, dan apa pun yang diajukan pembina sendiri, langsung ke bendahara.
+  const bpObj = bpMilik.find((b) => b.kode === bp);
+  const perluPembina = Boolean(bpObj?.divisi) && peran === 'pengurus';
+
+  // Daftar syarat yang belum terpenuhi, ditampilkan agar jelas apa yang kurang.
+  const kurang = [];
+  if (!disetujui) kurang.push('program kerja belum disetujui pembina');
+  if (baris.length === 0) kurang.push('belum ada uraian program');
+  if (baris.some((b) => !b.uraian)) kurang.push('ada uraian yang belum dipilih');
+  if (baris.some((b) => !(Number(b.nominal) > 0))) kurang.push('ada nominal yang masih nol');
+  if (!penerima.nama.trim()) kurang.push('nama pemilik rekening belum diisi');
+  if (!penerima.noRek.trim()) kurang.push('nomor rekening belum diisi');
+  if (adaTunggakan && !izin) kurang.push(`LPJ ${labelPeriode(bulanSebelum)} belum masuk`);
+  const sah = kurang.length === 0;
 
   const tambahBaris = () => setBaris((v) => [...v,
     { id: 'B' + Date.now(), kegiatanId: '', uraian: '', ambilDari: '', nominal: 0, catatan: '' }]);
@@ -459,8 +504,8 @@ function FormPBO({ isi, bpMilik, daftar, tahun, bulan, peran, profil, onBatal, o
   const kirim = () => onSimpan({
     id: isi.id, nomor, bp, tahunPelayanan: tahun, periodeAnggaran: periode,
     tglAjukan, dana, penerima, baris, total,
-    status: 'diajukan', izinKhusus: izin,
-    diajukanOleh: profil?.nama || '',
+    status: perluPembina ? 'diajukan' : 'diperiksaPembina',
+    izinKhusus: izin, diajukanOleh: profil?.nama || '',
     riwayat: isi.riwayat || [],
   });
 
@@ -630,14 +675,22 @@ function FormPBO({ isi, bpMilik, daftar, tahun, bulan, peran, profil, onBatal, o
           )}
         </div>
 
-        <div className="px-5 py-4 border-t border-stone-200 flex flex-wrap gap-3 justify-between items-center sticky bottom-0 bg-white">
+        <div className="px-5 py-4 border-t border-stone-200 sticky bottom-0 bg-white space-y-2">
+          {kurang.length > 0 && (
+            <p className="text-[12px] bg-amber-50 text-amber-900 px-3 py-2 rounded flex items-start gap-1.5">
+              <AlertTriangle size={14} className="mt-px shrink-0" />
+              <span>Belum bisa diajukan karena {kurang.join(', ')}.</span>
+            </p>
+          )}
+          <div className="flex flex-wrap gap-3 justify-between items-center">
           <p className="text-[12px] text-stone-600">{baris.length} uraian · {rp(total)}</p>
           <div className="flex gap-2">
             <button onClick={onBatal} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
             <button onClick={kirim} disabled={!sah}
               className="px-4 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 disabled:bg-stone-300 flex items-center gap-1.5">
-              <Send size={15} /> Ajukan
+              <Send size={15} /> {perluPembina ? 'Ajukan ke pembina' : 'Ajukan ke bendahara'}
             </button>
+          </div>
           </div>
         </div>
       </div>
@@ -680,7 +733,7 @@ function DialogIzin({ onBatal, onSimpan }) {
   );
 }
 
-function DialogVerifikasi({ pbo, namaBP, onBatal, onSimpan }) {
+function DialogVerifikasi({ pbo, tahap, namaBP, onBatal, onSimpan }) {
   const [setuju, setSetuju] = useState(true);
   const [catatan, setCatatan] = useState('');
   const kurang = !setuju && catatan.trim().length < 15;
@@ -689,7 +742,9 @@ function DialogVerifikasi({ pbo, namaBP, onBatal, onSimpan }) {
     <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center p-4 py-10 z-50 overflow-y-auto overscroll-contain">
       <div className="bg-white rounded-lg w-full max-w-md my-auto mx-auto">
         <div className="px-5 py-4 border-b border-stone-200">
-          <h3 className="text-base font-medium">Verifikasi PBO</h3>
+          <h3 className="text-base font-medium">
+            {tahap === 'pembina' ? 'Pemeriksaan pembina' : 'Verifikasi bendahara'}
+          </h3>
           <p className="text-[11px] text-stone-500">{namaBP(pbo.bp)} · {pbo.nomor}</p>
         </div>
         <div className="p-5 space-y-4">
@@ -704,6 +759,14 @@ function DialogVerifikasi({ pbo, namaBP, onBatal, onSimpan }) {
             ))}
           </div>
 
+          {tahap === 'pembina' && (
+            <p className="text-[12px] bg-stone-50 text-stone-700 px-3 py-2 rounded flex items-start gap-1.5">
+              <Info size={14} className="mt-px shrink-0" />
+              Setelah diteruskan, pengajuan ini masuk ke Bendahara Majelis Jemaat untuk persetujuan akhir
+              dan pencairan.
+            </p>
+          )}
+
           {pbo.baris?.some((b) => b.ambilDari) && (
             <p className="text-[12px] bg-amber-50 text-amber-900 px-3 py-2 rounded flex items-start gap-1.5">
               <Info size={14} className="mt-px shrink-0" />
@@ -714,7 +777,7 @@ function DialogVerifikasi({ pbo, namaBP, onBatal, onSimpan }) {
           <div className="flex gap-1.5">
             <button onClick={() => setSetuju(true)}
               className={`flex-1 px-3 py-2 rounded-md text-sm border ${setuju ? 'bg-teal-700 text-white border-teal-700' : 'bg-white border-stone-300'}`}>
-              Setujui
+              {tahap === 'pembina' ? 'Teruskan' : 'Setujui'}
             </button>
             <button onClick={() => setSetuju(false)}
               className={`flex-1 px-3 py-2 rounded-md text-sm border ${!setuju ? 'bg-red-700 text-white border-red-700' : 'bg-white border-stone-300'}`}>
@@ -734,10 +797,12 @@ function DialogVerifikasi({ pbo, namaBP, onBatal, onSimpan }) {
         </div>
         <div className="px-5 py-4 border-t border-stone-200 flex justify-end gap-2">
           <button onClick={onBatal} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
-          <button onClick={() => onSimpan({ pbo, setuju, catatan: catatan.trim() })} disabled={kurang}
+          <button onClick={() => onSimpan({ pbo, setuju, catatan: catatan.trim(), tahap })} disabled={kurang}
             className={`px-4 py-2 text-sm text-white rounded-md disabled:bg-stone-300 flex items-center gap-1.5 ${
               setuju ? 'bg-teal-700 hover:bg-teal-800' : 'bg-red-700 hover:bg-red-800'}`}>
-            {setuju ? <><CheckCircle2 size={15} /> Setujui</> : <><Undo2 size={15} /> Kembalikan</>}
+            {setuju
+              ? <><CheckCircle2 size={15} /> {tahap === 'pembina' ? 'Teruskan ke bendahara' : 'Setujui'}</>
+              : <><Undo2 size={15} /> Kembalikan</>}
           </button>
         </div>
       </div>
