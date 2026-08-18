@@ -52,6 +52,18 @@ service cloud.firestore {
       return isSuper() || isKetua() || isBendahara();
     }
 
+    // Tanda rahasia dibaca langsung dari data induk badan pelayanan,
+    // bukan dari salinan di dokumen, supaya tidak pernah basi.
+    function rahasiaBP(kode) {
+      return exists(/databases/$(database)/documents/badanPelayanan/$(kode))
+        && get(/databases/$(database)/documents/badanPelayanan/$(kode)).data.get('rahasia', false) == true;
+    }
+
+    // Boleh membuka dokumen milik badan pelayanan tertentu.
+    function bolehLihat(kode) {
+      return pusat() || kode in bpSaya() || !rahasiaBP(kode);
+    }
+
     // Badan pelayanan yang menjadi tanggung jawab pengguna ini,
     // baik sebagai pengurus maupun sebagai pembina.
     function bpSendiri(kode) {
@@ -116,12 +128,7 @@ service cloud.firestore {
       // Program kerja biasa boleh dilihat siapa saja yang aktif, supaya
       // pengurus bisa belajar dari badan pelayanan lain. Yang ditandai
       // rahasia hanya terbuka bagi unitnya sendiri, pembinanya, dan peran pusat.
-      allow read: if aktif() && (
-        pusat()
-        || (isPembina() && resource.data.bp in bpSaya())
-        || resource.data.get('rahasia', false) != true
-        || resource.data.bp in bpSaya()
-      );
+      allow read: if aktif() && (resource == null || bolehLihat(resource.data.bp));
 
       allow create: if isSuper()
                     || (isPembina() && request.resource.data.bp in bpSaya())
@@ -148,9 +155,11 @@ service cloud.firestore {
     // dan memberi izin khusus saat LPJ bulan sebelumnya belum masuk.
 
     match /pbo/{id} {
-      allow read: if pusat()
-                  || (isPembina() && resource.data.bp in bpSaya())
-                  || (isPengurus() && resource.data.bp in bpSaya());
+      allow read: if aktif() && (
+        resource == null
+        || pusat()
+        || resource.data.bp in bpSaya()
+      );
 
       allow create: if isSuper()
                     || (isPengurus()
@@ -169,9 +178,11 @@ service cloud.firestore {
     /* ─────────── LPJ ─────────── */
 
     match /lpj/{id} {
-      allow read: if pusat()
-                  || (isPembina() && resource.data.bp in bpSaya())
-                  || (isPengurus() && resource.data.bp in bpSaya());
+      allow read: if aktif() && (
+        resource == null
+        || pusat()
+        || resource.data.bp in bpSaya()
+      );
 
       allow create: if isSuper()
                     || (isPengurus() && request.resource.data.bp in bpSaya());

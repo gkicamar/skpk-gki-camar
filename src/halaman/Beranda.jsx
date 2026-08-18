@@ -184,7 +184,7 @@ export function DataInduk({ beritahu }) {
       {form && <FormBP isi={form} bp={bp} divisi={divisi} onBatal={() => setForm(null)} onSimpan={simpan} />}
 
       {hapus && (
-        <div className="fixed inset-0 bg-stone-900/40 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center p-4 z-50 overflow-y-auto overscroll-contain">
           <div className="bg-white rounded-lg w-full max-w-sm p-5">
             <h3 className="text-base font-medium mb-1.5">Hapus badan pelayanan?</h3>
             <p className="text-sm text-stone-600 mb-4">
@@ -219,8 +219,8 @@ function FormBP({ isi, bp, divisi, onBatal, onSimpan }) {
   }));
 
   return (
-    <div className="fixed inset-0 bg-stone-900/40 flex items-start md:items-center justify-center md:p-4 z-50 overflow-y-auto">
-      <div className="bg-white w-full max-w-md min-h-full md:min-h-0 md:my-6 md:rounded-lg">
+    <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center z-50 overflow-y-auto overscroll-contain">
+      <div className="bg-white w-full max-w-md my-0 md:my-8 md:rounded-lg">
         <div className="px-5 py-4 border-b border-stone-200 flex justify-between items-center">
           <h3 className="text-base font-medium">
             {isi.baru ? (departemen ? 'Tambah departemen' : 'Tambah divisi') : 'Ubah badan pelayanan'}

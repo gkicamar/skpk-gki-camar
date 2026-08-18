@@ -19,7 +19,7 @@ export default function Masuk() {
   };
 
   return (
-    <div className="min-h-full bg-stone-100 flex items-center justify-center p-4 font-sans">
+    <div className="min-h-full bg-stone-100 flex items-start justify-center p-4 py-10 font-sans overflow-y-auto">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2.5 mb-6 justify-center">
           <Logo ukuran={38} bulat="rounded-lg" />
@@ -99,7 +99,7 @@ export function GantiSandiAwal() {
   };
 
   return (
-    <div className="min-h-full bg-stone-100 flex items-center justify-center p-4 font-sans">
+    <div className="min-h-full bg-stone-100 flex items-start justify-center p-4 py-10 font-sans overflow-y-auto">
       <form onSubmit={kirim} className="w-full max-w-sm bg-white rounded-lg border border-stone-200 p-6 space-y-4">
         <div className="flex items-center gap-2.5">
           <span className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">

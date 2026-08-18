@@ -139,7 +139,7 @@ export default function KelolaPengguna({ beritahu }) {
       {form && <FormAkun isi={form} bp={bp} onBatal={() => setForm(null)} onSimpan={simpan} />}
 
       {konfirmasi && (
-        <div className="fixed inset-0 bg-stone-900/40 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center p-4 z-50 overflow-y-auto overscroll-contain">
           <div className="bg-white rounded-lg w-full max-w-sm p-5">
             <h3 className="text-base font-medium mb-1.5">Hapus akun dari sistem?</h3>
             <p className="text-sm text-stone-600 mb-4">
@@ -174,8 +174,8 @@ function FormAkun({ isi, bp, onBatal, onSimpan }) {
   const { divisi, anak } = susunHierarki(bp.filter((b) => b.aktif !== false));
 
   return (
-    <div className="fixed inset-0 bg-stone-900/40 flex items-start md:items-center justify-center md:p-4 z-50 overflow-y-auto">
-      <div className="bg-white w-full max-w-lg min-h-full md:min-h-0 md:my-6 md:rounded-lg">
+    <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center z-50 overflow-y-auto overscroll-contain">
+      <div className="bg-white w-full max-w-lg my-0 md:my-8 md:rounded-lg">
         <div className="px-5 py-4 border-b border-stone-200 flex justify-between items-center">
           <h3 className="text-base font-medium">{isi.baru ? 'Daftarkan akun' : 'Ubah akun'}</h3>
           <button onClick={onBatal} className="text-stone-400 hover:text-stone-700"><X size={18} /></button>

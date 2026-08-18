@@ -34,7 +34,7 @@ export default function App() {
   // di koleksi pengguna, atau akunnya dinonaktifkan.
   if (!profil || !aktif) {
     return (
-      <div className="min-h-full flex items-center justify-center bg-stone-100 p-4 font-sans">
+      <div className="min-h-full flex items-start justify-center bg-stone-100 p-4 py-10 font-sans overflow-y-auto">
         <div className="bg-white rounded-lg border border-stone-200 p-6 max-w-sm text-center">
           <ShieldOff size={22} className="text-stone-400 mx-auto mb-3" />
           <h2 className="text-base font-medium mb-1.5">

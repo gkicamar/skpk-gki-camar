@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, setDoc, getDoc, serverTimestamp, query, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase/config.js';
 import { useAuth } from '../konteks/Auth.jsx';
 import { SelBulan } from '../komponen/Dasar.jsx';
@@ -36,26 +36,38 @@ export default function ProgramKerja({ beritahu }) {
   const [hapus, setHapus] = useState(null);
   const [lalu, setLalu] = useState(null);
   const [serumpun, setSerumpun] = useState([]);
+  const [galat, setGalat] = useState('');
 
   const bulan = useMemo(() => periodeTP(tahun), [tahun]);
 
   useEffect(() => onSnapshot(collection(db, 'badanPelayanan'), (s) => {
     const d = s.docs.map((x) => ({ kode: x.id, ...x.data() })).filter((x) => x.aktif !== false);
     setBpDaftar(d);
-    setBpAktif((v) => (v && d.some((x) => x.kode === v) ? v : (bpSaya[0] || d[0]?.kode || '')));
+    setBpAktif((v) => (v && d.some((x) => x.kode === v) ? v : (bpSaya[0] || '')));
   }), [bpSaya]);
 
-  const { divisi, anak } = useMemo(() => susunHierarki(bpDaftar), [bpDaftar]);
+  const pusat = ['super', 'ketua', 'bendahara'].includes(peran);
+  const bolehLihat = (b) => pusat || !b.rahasia || bpSaya.includes(b.kode);
+  const bpTampil = useMemo(() => bpDaftar.filter(bolehLihat), [bpDaftar, peran, bpSaya]);
+  const { divisi, anak } = useMemo(() => susunHierarki(bpTampil), [bpTampil]);
   const bpObj = bpDaftar.find((b) => b.kode === bpAktif);
   const indukObj = bpDaftar.find((b) => b.kode === bpObj?.divisi);
 
   useEffect(() => {
     if (!bpAktif) return;
     setMemuat(true);
+    setDok(null);
+    setGalat('');
     return onSnapshot(doc(db, 'programKerja', idProgram(tahun, bpAktif)), (s) => {
       setDok(s.exists() ? { id: s.id, ...s.data() } : null);
       setMemuat(false);
-    }, () => setMemuat(false));
+    }, (e) => {
+      setDok(null);
+      setMemuat(false);
+      setGalat(e.code === 'permission-denied'
+        ? 'Tidak berhak membuka program kerja ini. Kalau ini badan pelayanan Anda sendiri, mintalah super user memeriksa penugasan akun.'
+        : 'Gagal memuat. Periksa sambungan lalu coba lagi.');
+    });
   }, [tahun, bpAktif]);
 
   useEffect(() => {
@@ -65,23 +77,33 @@ export default function ProgramKerja({ beritahu }) {
       .catch(() => setLalu(null));
   }, [tahun, bpAktif]);
 
-  // Rekap satu divisi beserta departemen di bawahnya.
-  const kodeDivisi = bpObj?.divisi || bpObj?.kode;
-  const anggotaDivisi = useMemo(() => {
-    if (!kodeDivisi) return [];
-    const induk = bpDaftar.find((b) => b.kode === kodeDivisi);
-    return induk ? [induk, ...anak(kodeDivisi)] : anak(kodeDivisi);
-  }, [kodeDivisi, bpDaftar, anak]);
+  // Rekap satu divisi beserta departemen di bawahnya. Kode anggota dipisahkan
+  // menjadi teks agar rujukannya stabil dan langganan tidak dibongkar tiap render.
+  const kodeDivisi = bpObj?.divisi || bpObj?.kode || '';
+  const kodeAnggota = useMemo(() => {
+    if (!kodeDivisi) return '';
+    return bpDaftar
+      .filter((b) => b.kode === kodeDivisi || b.divisi === kodeDivisi)
+      .sort((a, b) => (a.urut || 99) - (b.urut || 99))
+      .map((b) => b.kode).join(',');
+  }, [kodeDivisi, bpDaftar]);
+
+  const anggotaDivisi = useMemo(
+    () => (kodeAnggota ? kodeAnggota.split(',').map((k) => bpDaftar.find((b) => b.kode === k)).filter(Boolean) : []),
+    [kodeAnggota, bpDaftar],
+  );
 
   useEffect(() => {
-    if (anggotaDivisi.length < 2) { setSerumpun([]); return; }
-    return onSnapshot(
-      query(collection(db, 'programKerja'), where('tahunPelayanan', '==', tahun)),
-      (s) => setSerumpun(s.docs.map((x) => ({ id: x.id, ...x.data() }))
-        .filter((r) => anggotaDivisi.some((b) => b.kode === r.bp))),
-      () => setSerumpun([]),
-    );
-  }, [tahun, anggotaDivisi]);
+    const kode = kodeAnggota ? kodeAnggota.split(',') : [];
+    if (kode.length < 2) { setSerumpun([]); return; }
+    let batal = false;
+    Promise.all(kode.map((k) =>
+      getDoc(doc(db, 'programKerja', idProgram(tahun, k)))
+        .then((d) => (d.exists() ? { id: d.id, ...d.data() } : null))
+        .catch(() => null)))
+      .then((hasil) => { if (!batal) setSerumpun(hasil.filter(Boolean)); });
+    return () => { batal = true; };
+  }, [tahun, kodeAnggota]);
 
   const milikSaya = bpSaya.includes(bpAktif);
   const status = dok?.status || 'draf';
@@ -105,7 +127,6 @@ export default function ProgramKerja({ beritahu }) {
   const simpanDok = async (perubahan, pesan) => {
     await setDoc(doc(db, 'programKerja', idProgram(tahun, bpAktif)), {
       tahunPelayanan: tahun, bp: bpAktif,
-      rahasia: bpObj?.rahasia === true,
       status: dok?.status || 'draf', baris: dok?.baris || [],
       ...perubahan,
       diperbarui: serverTimestamp(), diperbaruiOleh: profil?.nama || '',
@@ -363,6 +384,11 @@ export default function ProgramKerja({ beritahu }) {
 
         {memuat ? (
           <p className="px-4 py-12 text-center text-sm text-stone-500">Memuat…</p>
+        ) : galat ? (
+          <div className="px-4 py-12 text-center">
+            <p className="text-sm text-red-800 mb-1">Tidak dapat dibuka</p>
+            <p className="text-[12px] text-stone-600 max-w-md mx-auto">{galat}</p>
+          </div>
         ) : induk.length === 0 ? (
           <div className="px-4 py-12 text-center">
             <p className="text-sm text-stone-500 mb-1">Belum ada kegiatan tersusun.</p>
@@ -407,7 +433,7 @@ export default function ProgramKerja({ beritahu }) {
       {formBaris && <FormBaris isi={formBaris} bulan={bulan} onBatal={() => setFormBaris(null)} onSimpan={simpanBaris} />}
       {dialog && <DialogPutusan jenis={dialog.jenis} onBatal={() => setDialog(null)} onSimpan={putuskan} />}
       {hapus && (
-        <div className="fixed inset-0 bg-stone-900/40 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center p-4 z-50 overflow-y-auto overscroll-contain">
           <div className="bg-white rounded-lg w-full max-w-sm p-5">
             <h3 className="text-base font-medium mb-1.5">Hapus kegiatan?</h3>
             <p className="text-sm text-stone-600 mb-4">
@@ -573,8 +599,8 @@ function FormBaris({ isi, bulan, onBatal, onSimpan }) {
   const total = jumlahBulan(d.bulan);
 
   return (
-    <div className="fixed inset-0 bg-stone-900/40 flex items-start md:items-center justify-center md:p-4 z-50 overflow-y-auto">
-      <div className="bg-white w-full max-w-2xl min-h-full md:min-h-0 md:my-6 md:rounded-lg">
+    <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center z-50 overflow-y-auto overscroll-contain">
+      <div className="bg-white w-full max-w-2xl my-0 md:my-8 md:rounded-lg">
         <div className="px-5 py-4 border-b border-stone-200 flex justify-between items-center">
           <h3 className="text-base font-medium">
             {isi.baru ? (anak ? 'Tambah sub kegiatan' : 'Tambah kegiatan') : 'Ubah kegiatan'}
@@ -671,8 +697,8 @@ function DialogPutusan({ jenis, onBatal, onSimpan }) {
   }[jenis];
 
   return (
-    <div className="fixed inset-0 bg-stone-900/40 flex items-center justify-center p-4 z-50 overflow-y-auto">
-      <div className="bg-white rounded-lg w-full max-w-md p-5 my-auto">
+    <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center p-4 z-50 overflow-y-auto overscroll-contain">
+      <div className="bg-white rounded-lg w-full max-w-md p-5 my-auto mx-auto">
         <h3 className="text-base font-medium mb-1.5">{judul}</h3>
         <p className="text-sm text-stone-600 mb-4">{isi}</p>
         <label className="block text-[11px] text-stone-500 mb-1">
