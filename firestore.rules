@@ -144,21 +144,23 @@ service cloud.firestore {
       // rahasia hanya terbuka bagi unitnya sendiri, pembinanya, dan peran pusat.
       allow read: if aktif() && (resource == null || bolehLihat(resource.data.bp));
 
+      // Bendahara dan ketua yang ditugaskan pada badan pelayanan struktural
+      // menyusun program kerjanya sendiri seperti pengurus lain.
       allow create: if isSuper()
                     || (isPembina() && binaan(request.resource.data.bp))
-                    || (isPengurus()
+                    || ((isPengurus() || isBendahara() || isKetua())
                         && request.resource.data.bp in bpSaya()
                         && request.resource.data.status == 'draf');
 
       allow update: if isSuper()
                     || (isPembina() && binaan(resource.data.bp))
-                    || (isPengurus()
+                    || ((isPengurus() || isBendahara() || isKetua())
                         && resource.data.bp in bpSaya()
                         && resource.data.status in ['draf', 'dikembalikan']
                         && request.resource.data.status in ['draf', 'diajukan']);
 
       allow delete: if isSuper()
-                    || (isPengurus()
+                    || ((isPengurus() || isBendahara() || isKetua())
                         && resource.data.bp in bpSaya()
                         && resource.data.status == 'draf');
     }
@@ -178,8 +180,8 @@ service cloud.firestore {
       // Pengajuan boleh dibuat pengurus maupun pembina, karena divisi seperti
       // Litbang dan Sarpen menjalankan programnya sendiri tanpa departemen.
       allow create: if isSuper()
-                    || ((isPengurus() || isPembina())
-                        && binaan(request.resource.data.bp)
+                    || ((isPengurus() || isPembina() || isBendahara() || isKetua())
+                        && (binaan(request.resource.data.bp) || request.resource.data.bp in bpSaya())
                         && request.resource.data.status in ['diajukan', 'diperiksaPembina']);
 
       // Verifikasi berjenjang: pembina memeriksa pengajuan departemen binaannya,

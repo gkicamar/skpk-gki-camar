@@ -4,7 +4,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase/config.js';
 import { useAuth } from '../konteks/Auth.jsx';
-import { InputRupiah } from '../komponen/Dasar.jsx';
+import { InputRupiah, PilihBP } from '../komponen/Dasar.jsx';
 import { susunHierarki } from './Beranda.jsx';
 import {
   rp, periodeTP, labelPeriode, labelBulanPendek, tanggalPanjang, tpBerjalan, hariIni,
@@ -158,19 +158,15 @@ export default function PBO({ beritahu }) {
             {bulan.map((p) => <option key={p} value={p}>{labelPeriode(p)}</option>)}
           </select>
         </div>
-        {(pusat || bpSaya.length > 1) && (
-          <div className="min-w-[180px] flex-1">
-            <label className="block text-[11px] text-stone-500 mb-1">Badan pelayanan</label>
-            <select value={bpSaring} onChange={(e) => setBpSaring(e.target.value)}
-              className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm bg-white">
-              <option value="SEMUA">Semua</option>
-              {divisi.map((d) => (
-                <optgroup key={d.kode} label={d.nama}>
-                  <option value={d.kode}>{d.nama}</option>
-                  {anak(d.kode).map((a) => <option key={a.kode} value={a.kode}>{'\u00A0\u00A0'}{a.nama}</option>)}
-                </optgroup>
-              ))}
-            </select>
+        {(pusat || jangkauan.length > 1) && (
+          <div className="min-w-[220px] flex-1">
+            <PilihBP nilai={bpSaring === 'SEMUA' ? '' : bpSaring} daftar={bpDaftar.filter((b) => pusat || jangkauan.includes(b.kode))}
+              bpSaya={bpSaya} label="Badan pelayanan" onPilih={(k) => setBpSaring(k || 'SEMUA')} />
+            {bpSaring !== 'SEMUA' && (
+              <button onClick={() => setBpSaring('SEMUA')} className="text-[11px] text-teal-700 hover:text-teal-900 mt-1">
+                Tampilkan semua
+              </button>
+            )}
           </div>
         )}
         <div className="flex gap-2 ml-auto">
@@ -178,7 +174,7 @@ export default function PBO({ beritahu }) {
             className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50 flex items-center gap-1.5">
             <Printer size={15} /> Cetak
           </button>
-          {['pengurus', 'pembina', 'super'].includes(peran) && bpMilik.length > 0 && (
+          {bpMilik.length > 0 && (
             <button onClick={() => setForm({ baru: true, bp: bpMilik[0].kode })}
               className="px-3 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 flex items-center gap-1.5">
               <Plus size={15} /> Ajukan PBO
@@ -272,7 +268,10 @@ function BarisPBO({ pbo, namaBP, peran, milik, departemen, terbuka, onBuka, onSu
     && ['diajukan', 'dikembalikan'].includes(pbo.status);
   // Pembina memeriksa pengajuan departemen binaannya yang masih menunggu.
   const giliranPembina = pbo.status === 'diajukan' && (peran === 'super' || (peran === 'pembina' && milik));
-  const giliranBendahara = pbo.status === 'diperiksaPembina' && bendahara;
+  // Pengajuan yang dibuat bendahara tidak boleh disetujui dirinya sendiri,
+  // melainkan oleh Ketua Majelis Jemaat.
+  const giliranBendahara = pbo.status === 'diperiksaPembina'
+    && (pbo.perluKetua ? ['ketua', 'super'].includes(peran) : bendahara);
 
   return (
     <div>
@@ -286,6 +285,7 @@ function BarisPBO({ pbo, namaBP, peran, milik, departemen, terbuka, onBuka, onSu
               <p className="text-sm font-medium">{namaBP(pbo.bp)}</p>
               <span className={`text-[10px] px-1.5 py-0.5 rounded ${st.warna}`}>{st.label}</span>
               {pbo.dana === 'BTH' && <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-900">Bethesda</span>}
+              {pbo.perluKetua && <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-700">persetujuan ketua</span>}
               {pbo.izinKhusus && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 inline-flex items-center gap-1">
                   <KeyRound size={9} /> izin ketua
@@ -295,6 +295,7 @@ function BarisPBO({ pbo, namaBP, peran, milik, departemen, terbuka, onBuka, onSu
             <p className="text-[11px] text-stone-500 mt-0.5">
               {pbo.nomor} · {labelPeriode(pbo.periodeAnggaran)} · diajukan {tanggalPanjang(pbo.tglAjukan)}
               {' · '}{pbo.baris?.length || 0} uraian
+              {pbo.status === 'diperiksaPembina' && pbo.perluKetua && ' · menunggu Ketua Majelis Jemaat'}
             </p>
           </div>
           <div className="text-right shrink-0">
@@ -475,6 +476,36 @@ function FormPBO({ isi, bpMilik, daftar, tahun, bulan, peran, profil, onBatal, o
       && p.status === 'dicairkan' && !p.lpjSelesai);
   }, [daftar, bp, bulanSebelum]);
 
+  // Anggaran adalah ember per uraian per bulan. Mengambil dari bulan lain berarti
+  // menimba ember bulan itu, bukan menambah jatah baru. Ember yang sudah kosong
+  // tidak boleh ditimba lagi, sehingga satu anggaran tidak terpakai dua kali.
+  const pagu = (kegiatanId, kunci) => {
+    const k = opsi.find((o) => o.id === kegiatanId);
+    const nilai = k?.bulan?.[kunci];
+    return typeof nilai === 'number' ? nilai : 0;
+  };
+
+  const terpakaiLain = (kegiatanId, kunci) => {
+    let jumlah = 0;
+    daftar.forEach((p) => {
+      if (p.bp !== bp || p.id === isi.id || p.status === 'dikembalikan') return;
+      (p.baris || []).forEach((x) => {
+        if (x.kegiatanId !== kegiatanId) return;
+        if ((x.ambilDari || p.periodeAnggaran) === kunci) jumlah += Number(x.nominal) || 0;
+      });
+    });
+    return jumlah;
+  };
+
+  // Baris lain pada formulir ini yang menimba ember yang sama.
+  const terpakaiForm = (kegiatanId, kunci, kecualiId) =>
+    baris.filter((x) => x.id !== kecualiId && x.kegiatanId === kegiatanId
+      && (x.ambilDari || periode) === kunci)
+      .reduce((t, x) => t + (Number(x.nominal) || 0), 0);
+
+  const sisaEmber = (kegiatanId, kunci, kecualiId) =>
+    pagu(kegiatanId, kunci) - terpakaiLain(kegiatanId, kunci) - terpakaiForm(kegiatanId, kunci, kecualiId);
+
   const total = baris.reduce((s, b) => s + (Number(b.nominal) || 0), 0);
   const nomor = isi.nomor || susunNomor(daftar, bp, periode);
 
@@ -489,6 +520,8 @@ function FormPBO({ isi, bpMilik, daftar, tahun, bulan, peran, profil, onBatal, o
   if (baris.length === 0) kurang.push('belum ada uraian program');
   if (baris.some((b) => !b.uraian)) kurang.push('ada uraian yang belum dipilih');
   if (baris.some((b) => !(Number(b.nominal) > 0))) kurang.push('ada nominal yang masih nol');
+  if (baris.some((b) => b.kegiatanId && Number(b.nominal) > sisaEmber(b.kegiatanId, b.ambilDari || periode, b.id)))
+    kurang.push('ada nominal yang melebihi sisa anggaran');
   if (!penerima.nama.trim()) kurang.push('nama pemilik rekening belum diisi');
   if (!penerima.noRek.trim()) kurang.push('nomor rekening belum diisi');
   if (adaTunggakan && !izin) kurang.push(`LPJ ${labelPeriode(bulanSebelum)} belum masuk`);
@@ -504,16 +537,10 @@ function FormPBO({ isi, bpMilik, daftar, tahun, bulan, peran, profil, onBatal, o
     ubahBaris(id, { kegiatanId, uraian: k?.nama || '', ambilDari: '' });
   };
 
-  const rencanaBulan = (b) => {
-    const k = opsi.find((o) => o.id === b.kegiatanId);
-    if (!k) return null;
-    const kunci = b.ambilDari || periode;
-    const nilai = k.bulan[kunci];
-    return typeof nilai === 'number' ? nilai : (nilai === 'X' ? 'X' : 0);
-  };
 
   const kirim = () => onSimpan({
     ...(isi.id ? { id: isi.id } : {}),
+    perluKetua: peran === 'bendahara',
     nomor, bp, tahunPelayanan: tahun, periodeAnggaran: periode,
     tglAjukan, dana, penerima, baris, total,
     status: perluPembina ? 'diajukan' : 'diperiksaPembina',
@@ -614,8 +641,10 @@ function FormPBO({ isi, bpMilik, daftar, tahun, bulan, peran, profil, onBatal, o
                     </p>
                   )}
                   {baris.map((b, i) => {
-                    const rencana = rencanaBulan(b);
-                    const lewat = typeof rencana === 'number' && rencana > 0 && Number(b.nominal) > rencana;
+                    const kunci = b.ambilDari || periode;
+                    const jatah = pagu(b.kegiatanId, kunci);
+                    const sisa = sisaEmber(b.kegiatanId, kunci, b.id);
+                    const lewat = b.kegiatanId && Number(b.nominal) > sisa;
                     return (
                       <div key={b.id} className="border border-stone-200 rounded-md p-3 space-y-2">
                         <div className="flex items-start gap-2">
@@ -637,18 +666,44 @@ function FormPBO({ isi, bpMilik, daftar, tahun, bulan, peran, profil, onBatal, o
                                 <select value={b.ambilDari} onChange={(e) => ubahBaris(b.id, { ambilDari: e.target.value })}
                                   className="w-full border border-stone-300 rounded-md px-2 py-2 text-sm bg-white">
                                   <option value="">Bulan ini</option>
-                                  {bulan.filter((p) => p !== periode).map((p) =>
-                                    <option key={p} value={p}>{labelBulanPendek(p)}</option>)}
+                                  {bulan.filter((p) => p !== periode).map((p) => {
+                                    const s2 = sisaEmber(b.kegiatanId, p, b.id);
+                                    return (
+                                      <option key={p} value={p} disabled={b.kegiatanId && s2 <= 0}>
+                                        {labelBulanPendek(p)}{b.kegiatanId ? ` · sisa ${rp(s2)}` : ''}
+                                      </option>
+                                    );
+                                  })}
                                 </select>
                               </div>
                             </div>
 
                             {b.kegiatanId && (
-                              <p className={`text-[11px] ${lewat ? 'text-red-700' : 'text-stone-500'}`}>
-                                {rencana === 'X' ? 'Direncanakan tanpa anggaran pada bulan itu'
-                                  : rencana ? `Rencana program kerja ${rp(rencana)}${lewat ? ` · pengajuan lebih ${rp(Number(b.nominal) - rencana)}` : ''}`
-                                  : 'Tidak ada anggaran pada bulan itu di program kerja'}
-                              </p>
+                              <div className={`text-[11px] rounded px-2 py-1.5 ${
+                                jatah === 0 ? 'bg-stone-50 text-stone-600'
+                                  : lewat ? 'bg-red-50 text-red-800' : 'bg-teal-50 text-teal-900'}`}>
+                                {jatah === 0 ? (
+                                  <span>Tidak ada anggaran untuk uraian ini di {labelBulanPendek(kunci)}</span>
+                                ) : (
+                                  <>
+                                    <div className="flex justify-between gap-3">
+                                      <span>Anggaran {labelBulanPendek(kunci)}</span>
+                                      <span>{rp(jatah)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-3">
+                                      <span>Sisa yang boleh diajukan</span>
+                                      <span className="font-medium">{rp(sisa)}</span>
+                                    </div>
+                                    {lewat && (
+                                      <p className="mt-1">
+                                        {sisa <= 0
+                                          ? 'Anggaran bulan ini sudah habis diajukan. Pilih bulan lain yang masih bersisa.'
+                                          : `Melebihi sisa sebesar ${rp(Number(b.nominal) - sisa)}.`}
+                                      </p>
+                                    )}
+                                  </>
+                                )}
+                              </div>
                             )}
 
                             <input value={b.catatan} onChange={(e) => ubahBaris(b.id, { catatan: e.target.value })}

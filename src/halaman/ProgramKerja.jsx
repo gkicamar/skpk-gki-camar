@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { collection, doc, onSnapshot, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase/config.js';
 import { useAuth } from '../konteks/Auth.jsx';
-import { SelBulan } from '../komponen/Dasar.jsx';
+import { SelBulan, PilihBP } from '../komponen/Dasar.jsx';
 import { susunHierarki } from './Beranda.jsx';
 import {
   rp, rpSingkat, periodeTP, labelBulanPendek, tanggalPanjang,
@@ -113,13 +113,16 @@ export default function ProgramKerja({ beritahu }) {
 
   const milikSaya = jangkauan.includes(bpAktif);
   const status = dok?.status || 'draf';
+  const punyaSendiri = bpSaya.includes(bpAktif);
   const bolehSunting =
     peran === 'super'
     || (peran === 'pembina' && milikSaya)
-    || (peran === 'pengurus' && milikSaya && ['draf', 'dikembalikan'].includes(status));
+    || (['pengurus', 'bendahara', 'ketua'].includes(peran) && punyaSendiri
+        && ['draf', 'dikembalikan'].includes(status));
   const bolehVerifikasi = peran === 'super' || (peran === 'pembina' && milikSaya && status === 'diajukan');
   const bolehBukaKembali = (peran === 'super' || (peran === 'pembina' && milikSaya)) && status === 'disetujui';
-  const bolehAjukan = peran === 'pengurus' && milikSaya && ['draf', 'dikembalikan'].includes(status);
+  const bolehAjukan = ['pengurus', 'bendahara', 'ketua'].includes(peran) && punyaSendiri
+    && ['draf', 'dikembalikan'].includes(status);
 
   const baris = dok?.baris || [];
   const induk = baris.filter((b) => !b.indukId);
@@ -198,21 +201,9 @@ export default function ProgramKerja({ beritahu }) {
   return (
     <div className="max-w-5xl mx-auto space-y-4 pb-10">
       <div className="bg-white rounded-lg border border-stone-200 p-4 flex flex-wrap gap-4 items-end no-print">
-        <div className="min-w-[220px] flex-1">
-          <label className="block text-[11px] text-stone-500 mb-1">Badan pelayanan</label>
-          <select value={bpAktif} onChange={(e) => { setBpAktif(e.target.value); setBuka(null); }}
-            className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm bg-white">
-            {divisi.map((d) => (
-              <optgroup key={d.kode} label={d.nama}>
-                <option value={d.kode}>{d.nama}{bpSaya.includes(d.kode) ? ' · milik Anda' : ''}</option>
-                {anak(d.kode).map((a) => (
-                  <option key={a.kode} value={a.kode}>
-                    {'\u00A0\u00A0'}{a.nama}{a.rahasia ? ' · rahasia' : ''}{bpSaya.includes(a.kode) ? ' · milik Anda' : ''}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+        <div className="min-w-[240px] flex-1">
+          <PilihBP nilai={bpAktif} daftar={bpTampil} bpSaya={jangkauan}
+            onPilih={(k) => { setBpAktif(k); setBuka(null); }} />
         </div>
         <div>
           <label className="block text-[11px] text-stone-500 mb-1">Tahun pelayanan</label>
