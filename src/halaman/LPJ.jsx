@@ -19,12 +19,13 @@ const STATUS = {
   draf:             { label: 'Draf',                warna: 'bg-stone-100 text-stone-700' },
   diajukan:         { label: 'Menunggu pembina',    warna: 'bg-amber-50 text-amber-900' },
   diperiksaPembina: { label: 'Menunggu bendahara',  warna: 'bg-blue-50 text-blue-900' },
-  disetujui:        { label: 'Disetujui',           warna: 'bg-teal-50 text-teal-900' },
-  dikembalikan:     { label: 'Dikembalikan',        warna: 'bg-red-50 text-red-900' },
+  disetujui:        { label: 'Menunggu penyelesaian', warna: 'bg-indigo-50 text-indigo-900' },
+  selesai:          { label: 'Selesai',              warna: 'bg-teal-50 text-teal-900' },
+  dikembalikan:     { label: 'Dikembalikan',         warna: 'bg-red-50 text-red-900' },
 };
 
 const BATAS_BERKAS = 2 * 1024 * 1024;
-const MIN_EVALUASI = 40;
+const MIN_EVALUASI = 5;
 
 const idLPJ = (bp, periode) => `${bp}_${periode}`;
 const jumlahRealisasi = (l) => (l?.baris || []).reduce((s, b) => s + (Number(b.realisasi) || 0), 0);
@@ -41,6 +42,7 @@ export default function LPJ({ beritahu }) {
   const [buka, setBuka] = useState(null);
   const [form, setForm] = useState(null);
   const [verifikasi, setVerifikasi] = useState(null);
+  const [selesaikan, setSelesaikan] = useState(null);
   const [tampil, setTampil] = useState(20);
 
   const bulan = useMemo(() => periodeTP(tahun), [tahun]);
@@ -86,7 +88,7 @@ export default function LPJ({ beritahu }) {
         const k = `${p.bp}_${p.periodeAnggaran}`;
         kunci.set(k, (kunci.get(k) || 0) + (Number(p.total) || 0));
       });
-    daftar.filter((l) => l.status === 'disetujui').forEach((l) => kunci.delete(idLPJ(l.bp, l.periodeAnggaran)));
+    daftar.filter((l) => l.status === 'selesai').forEach((l) => kunci.delete(idLPJ(l.bp, l.periodeAnggaran)));
     return [...kunci.entries()].map(([k, nilai]) => {
       const [bp, periode] = [k.slice(0, k.lastIndexOf('_')), k.slice(k.lastIndexOf('_') + 1)];
       return { bp, periode, nilai };
@@ -114,7 +116,12 @@ export default function LPJ({ beritahu }) {
       tgl: hariIni(), oleh: profil?.nama || '',
       tindakan: setuju ? (tahap === 'pembina' ? 'periksaPembina' : 'setuju') : 'kembalikan', catatan,
     }].slice(-20);
-    const status = !setuju ? 'dikembalikan' : tahap === 'pembina' ? 'diperiksaPembina' : 'disetujui';
+    const realisasi = jumlahRealisasi(lpj);
+    const sisa = (Number(lpj.totalPBO) || 0) + (Number(lpj.donatur) || 0) - realisasi;
+    // Tidak ada sisa berarti tidak ada uang yang perlu bergerak lagi, jadi tuntas.
+    const status = !setuju ? 'dikembalikan'
+      : tahap === 'pembina' ? 'diperiksaPembina'
+      : (sisa === 0 ? 'selesai' : 'disetujui');
     try {
       await setDoc(doc(db, 'lpj', lpj.id), {
         status, riwayat, diperbarui: serverTimestamp(),
@@ -125,16 +132,38 @@ export default function LPJ({ beritahu }) {
 
       // Setelah LPJ disetujui, PBO bulan itu ditandai selesai supaya penjaga
       // pengajuan bulan berikutnya terbuka.
-      if (status === 'disetujui') {
+      if (status === 'selesai') {
         const cocok = pboSemua.filter((p) => p.bp === lpj.bp && p.periodeAnggaran === lpj.periodeAnggaran);
         await Promise.all(cocok.map((p) =>
           setDoc(doc(db, 'pbo', p.id), { lpjSelesai: true }, { merge: true }).catch(() => null)));
       }
       setVerifikasi(null);
       beritahu(!setuju ? 'LPJ dikembalikan ke penyusun'
-        : tahap === 'pembina' ? 'Diteruskan ke Bendahara Majelis Jemaat' : 'LPJ disetujui, PBO bulan itu ditutup');
+        : tahap === 'pembina' ? 'Diteruskan ke Bendahara Majelis Jemaat'
+        : status === 'selesai' ? 'LPJ disetujui, PBO bulan itu ditutup'
+        : `LPJ disetujui. Menunggu penyelesaian ${rp(Math.abs(sisa))}`);
     } catch (e) {
       beritahu('Tidak berhak memverifikasi LPJ ini.', 'info');
+    }
+  };
+
+  const simpanPenyelesaian = async ({ lpj, tgl, aktual, akun, catatan, bukti, verifikasiUang }) => {
+    try {
+      await setDoc(doc(db, 'lpj', lpj.id), {
+        status: 'selesai',
+        penyelesaian: { tgl, aktual, akun, catatan, verifikasi: verifikasiUang, oleh: profil?.nama || '' },
+        ...(bukti ? { lampiran: [...(lpj.lampiran || []), bukti] } : {}),
+        diperbarui: serverTimestamp(),
+      }, { merge: true });
+      const cocok = pboSemua.filter((p) => p.bp === lpj.bp && p.periodeAnggaran === lpj.periodeAnggaran);
+      await Promise.all(cocok.map((p) =>
+        setDoc(doc(db, 'pbo', p.id), { lpjSelesai: true }, { merge: true }).catch(() => null)));
+      setSelesaikan(null);
+      beritahu(verifikasiUang === 'Sesuai'
+        ? 'Penyelesaian dicatat, PBO bulan itu ditutup'
+        : 'Dicatat dengan tanda selisih untuk diperiksa', verifikasiUang === 'Sesuai' ? 'baik' : 'info');
+    } catch (e) {
+      beritahu(`Gagal menyimpan: ${e.message || e.code}`, 'info');
     }
   };
 
@@ -215,7 +244,8 @@ export default function LPJ({ beritahu }) {
                 punyaSendiri={bpSaya.includes(l.bp)}
                 terbuka={buka === l.id} onBuka={() => setBuka(buka === l.id ? null : l.id)}
                 onSunting={() => setForm({ ...l, baru: false })}
-                onVerifikasi={(tahap) => setVerifikasi({ lpj: l, tahap })} />
+                onVerifikasi={(tahap) => setVerifikasi({ lpj: l, tahap })}
+                onSelesaikan={() => setSelesaikan(l)} />
             ))}
             {tersaring.length > tampil && (
               <div className="px-4 py-3 text-center no-print">
@@ -238,13 +268,17 @@ export default function LPJ({ beritahu }) {
         <DialogVerifikasi lpj={verifikasi.lpj} tahap={verifikasi.tahap} namaBP={namaBP}
           onBatal={() => setVerifikasi(null)} onSimpan={putusan} />
       )}
+      {selesaikan && (
+        <DialogPenyelesaian lpj={selesaikan} namaBP={namaBP} beritahu={beritahu}
+          onBatal={() => setSelesaikan(null)} onSimpan={simpanPenyelesaian} />
+      )}
     </div>
   );
 }
 
 /* ─────────── Satu baris LPJ ─────────── */
 
-function BarisLPJ({ lpj, namaBP, peran, milik, punyaSendiri, terbuka, onBuka, onSunting, onVerifikasi }) {
+function BarisLPJ({ lpj, namaBP, peran, milik, punyaSendiri, terbuka, onBuka, onSunting, onVerifikasi, onSelesaikan }) {
   const st = STATUS[lpj.status] || STATUS.draf;
   const bendahara = ['bendahara', 'super', 'ketua'].includes(peran);
   const realisasi = jumlahRealisasi(lpj);
@@ -254,6 +288,7 @@ function BarisLPJ({ lpj, namaBP, peran, milik, punyaSendiri, terbuka, onBuka, on
   const bolehSunting = punyaSendiri && ['draf', 'dikembalikan'].includes(lpj.status);
   const giliranPembina = lpj.status === 'diajukan' && (peran === 'super' || (peran === 'pembina' && milik));
   const giliranBendahara = lpj.status === 'diperiksaPembina' && bendahara;
+  const giliranSelesai = lpj.status === 'disetujui' && bendahara;
 
   return (
     <div className="px-4 py-3">
@@ -292,12 +327,30 @@ function BarisLPJ({ lpj, namaBP, peran, milik, punyaSendiri, terbuka, onBuka, on
               <button onClick={() => onVerifikasi('bendahara')}
                 className="text-[12px] px-2.5 py-1 border border-teal-600 text-teal-800 rounded-md hover:bg-teal-50">Verifikasi</button>
             )}
+            {giliranSelesai && (
+              <button onClick={onSelesaikan}
+                className="text-[12px] px-2.5 py-1 border border-teal-600 text-teal-800 rounded-md hover:bg-teal-50 flex items-center gap-1">
+                <Banknote size={12} /> {sisa > 0 ? 'Catat pengembalian' : 'Catat pelunasan'}
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       {terbuka && (
         <div className="mt-3 ml-7 space-y-3">
+          {lpj.status === 'disetujui' && (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-md px-3 py-2 flex items-start gap-2">
+              <Banknote size={14} className="text-indigo-800 mt-0.5 shrink-0" />
+              <p className="text-[12px] text-indigo-900">
+                LPJ sudah disetujui bendahara. {sisa > 0
+                  ? `Menunggu sisa ${rp(sisa)} dikembalikan ke rekening gereja.`
+                  : `Menunggu kekurangan ${rp(-sisa)} dibayarkan gereja.`}
+                {' '}PBO bulan berikutnya baru terbuka setelah ini dicatat.
+              </p>
+            </div>
+          )}
+
           {lpj.status === 'dikembalikan' && (lpj.catatanVerifikasi || lpj.catatanPembina) && (
             <div className="bg-red-50 border border-red-200 rounded-md px-3 py-2 flex items-start gap-2">
               <Undo2 size={14} className="text-red-800 mt-0.5 shrink-0" />
@@ -349,6 +402,20 @@ function BarisLPJ({ lpj, namaBP, peran, milik, punyaSendiri, terbuka, onBuka, on
               </div>
             )}
           </div>
+
+          {lpj.penyelesaian && (
+            <div className={`rounded-md px-3 py-2 ${
+              lpj.penyelesaian.verifikasi === 'Sesuai' ? 'bg-teal-50 text-teal-900' : 'bg-red-50 text-red-900'}`}>
+              <p className="text-[12px] font-medium">
+                {lpj.penyelesaian.verifikasi === 'Sesuai' ? 'Penyelesaian sesuai LPJ' : 'Penyelesaian berselisih'}
+                {' · '}{rp(lpj.penyelesaian.aktual)} pada {tanggalPanjang(lpj.penyelesaian.tgl)}
+              </p>
+              <p className="text-[11px] mt-0.5">
+                Lewat {lpj.penyelesaian.akun} · dicatat {lpj.penyelesaian.oleh}
+                {lpj.penyelesaian.catatan ? ` · ${lpj.penyelesaian.catatan}` : ''}
+              </p>
+            </div>
+          )}
 
           {lpj.donatur > 0 && (
             <p className="text-[11px] bg-stone-50 text-stone-600 px-3 py-2 rounded">
@@ -415,7 +482,7 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
 
   // Bulan yang PBO-nya sudah cair dan belum punya LPJ disetujui.
   const bulanTersedia = useMemo(() => {
-    const punya = new Set(daftar.filter((l) => l.bp === bp && l.status === 'disetujui')
+    const punya = new Set(daftar.filter((l) => l.bp === bp && ['disetujui', 'selesai'].includes(l.status))
       .map((l) => l.periodeAnggaran));
     return bulan.filter((p) => {
       if (isi.periodeAnggaran === p) return true;
@@ -512,22 +579,6 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
     status: status === 'draf' ? 'draf' : (perluPembina ? 'diajukan' : 'diperiksaPembina'),
     disusunOleh: profil?.nama || '', riwayat: isi.riwayat || [],
   });
-
-  const Isian = ({ label, kunci, contoh, baris: n = 3 }) => {
-    const nilai = evaluasi[kunci] || '';
-    const pendek = nilai.trim().length < MIN_EVALUASI;
-    return (
-      <div>
-        <label className="block text-[11px] text-stone-500 mb-1">{label}</label>
-        <textarea value={nilai} rows={n} placeholder={contoh}
-          onChange={(e) => setEvaluasi((v) => ({ ...v, [kunci]: e.target.value }))}
-          className={`w-full border rounded-md px-3 py-2 text-sm resize-none ${pendek ? 'border-amber-300' : 'border-stone-300'}`} />
-        <p className={`text-[11px] mt-0.5 ${pendek ? 'text-amber-700' : 'text-stone-400'}`}>
-          {nilai.trim().length} dari minimal {MIN_EVALUASI} huruf
-        </p>
-      </div>
-    );
-  };
 
   return (
     <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center z-50 overflow-y-auto overscroll-contain p-0 md:p-4">
@@ -737,16 +788,16 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
               Bagian ini wajib. LPJ tanpa evaluasi hanya membuktikan uangnya habis, bukan bahwa
               pelayanannya berjalan.
             </p>
-            <Isian label="Apa yang berjalan baik, dan mengapa" kunci="keberhasilan"
-              contoh="Ceritakan bagian yang berhasil beserta penyebabnya" />
-            <Isian label="Kendala yang dihadapi" kunci="kendala"
-              contoh="Hambatan selama persiapan maupun pelaksanaan" />
-            <Isian label="Akar masalahnya menurut badan pelayanan" kunci="akarMasalah" baris={2}
-              contoh="Mengapa kendala itu terjadi" />
-            <Isian label="Rekomendasi untuk kegiatan sejenis berikutnya" kunci="rekomendasi"
-              contoh="Saran perbaikan yang konkret" />
-            <Isian label="Tindak lanjut, penanggung jawab, dan targetnya" kunci="tindakLanjut"
-              contoh="Apa yang akan dikerjakan, oleh siapa, kapan" />
+            {[
+              ['keberhasilan', 'Apa yang berjalan baik, dan mengapa', 'Ceritakan bagian yang berhasil beserta penyebabnya', 3],
+              ['kendala', 'Kendala yang dihadapi', 'Hambatan selama persiapan maupun pelaksanaan', 3],
+              ['akarMasalah', 'Akar masalahnya menurut badan pelayanan', 'Mengapa kendala itu terjadi', 2],
+              ['rekomendasi', 'Rekomendasi untuk kegiatan sejenis berikutnya', 'Saran perbaikan yang konkret', 3],
+              ['tindakLanjut', 'Tindak lanjut, penanggung jawab, dan targetnya', 'Apa yang akan dikerjakan, oleh siapa, kapan', 3],
+            ].map(([kunci, label, contoh, n]) => (
+              <Isian key={kunci} label={label} contoh={contoh} baris={n} nilai={evaluasi[kunci]}
+                onUbah={(v) => setEvaluasi((x) => ({ ...x, [kunci]: v }))} />
+            ))}
           </>}
         </div>
 
@@ -773,6 +824,23 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─────────── Kotak isian evaluasi ─────────── */
+
+// Didefinisikan di luar formulir. Kalau ditulis di dalamnya, React menganggapnya
+// komponen baru setiap render dan fokus mengetik akan lepas tiap huruf.
+function Isian({ label, nilai, onUbah, contoh, baris = 3 }) {
+  const pendek = (nilai || '').trim().length < MIN_EVALUASI;
+  return (
+    <div>
+      <label className="block text-[11px] text-stone-500 mb-1">{label}</label>
+      <textarea value={nilai || ''} rows={baris} placeholder={contoh}
+        onChange={(e) => onUbah(e.target.value)}
+        className={`w-full border rounded-md px-3 py-2 text-sm resize-none ${pendek ? 'border-amber-300' : 'border-stone-300'}`} />
+      {pendek && <p className="text-[11px] text-amber-700 mt-0.5">Isi minimal {MIN_EVALUASI} huruf</p>}
     </div>
   );
 }
@@ -860,6 +928,160 @@ function DialogVerifikasi({ lpj, tahap, namaBP, onBatal, onSimpan }) {
               setuju ? 'bg-teal-700 hover:bg-teal-800' : 'bg-red-700 hover:bg-red-800'}`}>
             {setuju ? <><CheckCircle2 size={15} /> {tahap === 'pembina' ? 'Teruskan' : 'Setujui'}</>
               : <><Undo2 size={15} /> Kembalikan</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────── Penyelesaian uang, setelah bendahara memutuskan ─────────── */
+
+// Sisa baru boleh dikembalikan setelah bendahara menetapkan berapa realisasi
+// yang diterima. Bukti transfernya diunggah di sini, bukan saat menyusun LPJ.
+function DialogPenyelesaian({ lpj, namaBP, beritahu, onBatal, onSimpan }) {
+  const realisasi = jumlahRealisasi(lpj);
+  const harus = (Number(lpj.totalPBO) || 0) + (Number(lpj.donatur) || 0) - realisasi;
+  const kembali = harus > 0;
+  const seharusnya = Math.abs(harus);
+
+  const [tgl, setTgl] = useState(hariIni());
+  const [aktual, setAktual] = useState(seharusnya);
+  const [akun, setAkun] = useState('BCA-OPS');
+  const [catatan, setCatatan] = useState('');
+  const [bukti, setBukti] = useState(null);
+  const [unggah, setUnggah] = useState(false);
+
+  const beda = Math.abs(Number(aktual) - seharusnya);
+  const cocok = beda < 1;
+  const boleh = Number(aktual) > 0 && (cocok || catatan.trim().length >= 10);
+
+  const pilihBukti = async (e) => {
+    const berkas = e.target.files?.[0];
+    e.target.value = '';
+    if (!berkas) return;
+    setUnggah(true);
+    try {
+      const kecil = await kompresGambar(berkas);
+      if (kecil.size > BATAS_BERKAS) {
+        beritahu(`Berkas masih ${ukuranBerkas(kecil.size)}, terlalu besar`, 'info');
+      } else {
+        const id = 'F' + Date.now();
+        const acuan = ref(storage, `lampiran/${lpj.bp}/${id}_${kecil.name}`);
+        await uploadBytes(acuan, kecil);
+        const url = await getDownloadURL(acuan);
+        setBukti({ id, nama: kecil.name, ukuran: kecil.size, jenis: 'pengembalian', url, jalur: acuan.fullPath });
+      }
+    } catch (err) {
+      beritahu('Gagal mengunggah bukti. Periksa apakah Storage sudah aktif.', 'info');
+    }
+    setUnggah(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center p-4 py-10 z-50 overflow-y-auto overscroll-contain">
+      <div className="bg-white rounded-lg w-full max-w-md my-auto mx-auto">
+        <div className="px-5 py-4 border-b border-stone-200 flex items-center gap-2.5">
+          <span className="w-8 h-8 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
+            <Banknote size={16} className="text-teal-700" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-base font-medium">
+              {kembali ? 'Catat pengembalian sisa' : 'Catat pelunasan kekurangan'}
+            </h3>
+            <p className="text-[11px] text-stone-500 truncate">
+              {namaBP(lpj.bp)} · {labelPeriode(lpj.periodeAnggaran)}
+            </p>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="bg-stone-50 rounded-md px-4 py-3 space-y-1.5 text-sm">
+            {[['PBO dicairkan', rp(lpj.totalPBO)], ['Donatur', rp(lpj.donatur || 0)],
+              ['Realisasi menurut LPJ', rp(realisasi)],
+              [kembali ? 'Seharusnya kembali' : 'Seharusnya dibayar', rp(seharusnya)]].map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-4">
+                <span className="text-stone-500">{k}</span><span className="font-medium">{v}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] text-stone-500 mb-1">Tanggal uang {kembali ? 'masuk' : 'keluar'}</label>
+              <input type="date" value={tgl} onChange={(e) => setTgl(e.target.value)}
+                className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-[11px] text-stone-500 mb-1">Rekening</label>
+              <select value={akun} onChange={(e) => setAkun(e.target.value)}
+                className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm bg-white">
+                <option value="BCA-OPS">BCA Giro — Rekening Belanja</option>
+                <option value="BNI-OPS">BNI — Penampung Persembahan</option>
+                <option value="BNI-BTH">BNI — Bethesda</option>
+                <option value="KAS-TUNAI">Kas Tunai Sekretariat</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] text-stone-500 mb-1">
+              Nominal yang benar-benar {kembali ? 'masuk' : 'keluar'}
+            </label>
+            <InputRupiah nilai={aktual} onUbah={setAktual} />
+            <p className="text-[11px] text-stone-500 mt-1">Isi sesuai mutasi bank, bukan angka yang seharusnya</p>
+          </div>
+
+          <div className={`px-4 py-3 rounded-md text-sm ${cocok ? 'bg-teal-50 text-teal-900' : 'bg-red-50 text-red-900'}`}>
+            <div className="flex justify-between items-center gap-3">
+              <span className="flex items-center gap-1.5">
+                {cocok ? <><CheckCircle2 size={15} /> Sesuai LPJ</> : <><AlertTriangle size={15} /> Tidak sesuai LPJ</>}
+              </span>
+              <span className="font-medium">{cocok ? rp(seharusnya) : `selisih ${rp(beda)}`}</span>
+            </div>
+            {!cocok && <p className="text-[11px] mt-1.5">Ditandai untuk diperiksa. Catatan wajib diisi.</p>}
+          </div>
+
+          <div>
+            <label className="block text-[11px] text-stone-500 mb-1">Bukti transfer</label>
+            {bukti ? (
+              <div className="flex items-center gap-2 px-3 py-2 border border-teal-200 bg-teal-50 rounded-md">
+                <Receipt size={14} className="text-teal-700 shrink-0" />
+                <a href={bukti.url} target="_blank" rel="noreferrer" className="text-[13px] flex-1 truncate">{bukti.nama}</a>
+                <span className="text-[11px] text-stone-500 shrink-0">{ukuranBerkas(bukti.ukuran)}</span>
+                <button onClick={() => setBukti(null)} className="text-stone-400 hover:text-red-600"><X size={14} /></button>
+              </div>
+            ) : (
+              <label className="flex items-center gap-2.5 px-3 py-2.5 border-2 border-dashed border-stone-300 rounded-md cursor-pointer hover:border-teal-600">
+                <Paperclip size={16} className="text-stone-400" />
+                <span className="text-sm text-stone-500 flex-1">
+                  {unggah ? 'Mengunggah…' : 'Pilih foto bukti transfer'}
+                </span>
+                <input type="file" accept="image/*,.pdf" className="hidden" onChange={pilihBukti} disabled={unggah} />
+              </label>
+            )}
+            <p className="text-[11px] text-stone-500 mt-1">Boleh dilewati, tetapi sebaiknya dilampirkan</p>
+          </div>
+
+          <div>
+            <label className="block text-[11px] text-stone-500 mb-1">
+              Catatan {cocok ? '(opsional)' : '(wajib karena ada selisih)'}
+            </label>
+            <textarea value={catatan} onChange={(e) => setCatatan(e.target.value)} rows={2}
+              placeholder={cocok ? 'Misalnya: dikembalikan tunai lalu disetor' : 'Jelaskan penyebab selisihnya'}
+              className={`w-full border rounded-md px-3 py-2 text-sm resize-none ${
+                !cocok && catatan.trim().length < 10 ? 'border-red-300' : 'border-stone-300'}`} />
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-stone-200 flex justify-end gap-2">
+          <button onClick={onBatal} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
+          <button onClick={() => onSimpan({
+            lpj, tgl, aktual: Number(aktual), akun, catatan: catatan.trim(), bukti,
+            verifikasiUang: cocok ? 'Sesuai' : 'Selisih',
+          })} disabled={!boleh || unggah}
+            className="px-4 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 disabled:bg-stone-300 flex items-center gap-1.5">
+            <Save size={15} /> Simpan dan tutup
           </button>
         </div>
       </div>
