@@ -26,12 +26,32 @@ service firebase.storage {
             || request.resource.contentType == 'application/pdf');
     }
 
+    // Induk divisi sebuah badan pelayanan, agar kewenangan pembina menurun
+    // ke departemen di bawahnya seperti pada aturan Firestore.
+    function indukBP(kode) {
+      return firestore.exists(/databases/(default)/documents/badanPelayanan/$(kode))
+        ? firestore.get(/databases/(default)/documents/badanPelayanan/$(kode)).data.get('divisi', '')
+        : '';
+    }
+
+    function binaan(kode) {
+      return kode in bpSaya() || indukBP(kode) in bpSaya();
+    }
+
     match /lampiran/{bp}/{berkas} {
-      allow read: if majelis() || (peran() == 'pengurus' && bp in bpSaya());
+      allow read: if peran() in ['super', 'ketua', 'bendahara']
+                  || (peran() == 'pembina' && binaan(bp))
+                  || (peran() == 'pengurus' && bp in bpSaya());
+
+      // Bendahara dan ketua mengunggah bukti pencairan dan pelunasan;
+      // pengurus mengunggah nota dan bukti pengembalian miliknya sendiri.
       allow write: if berkasSah()
-                   && (peran() in ['super', 'bendahara']
+                   && (peran() in ['super', 'bendahara', 'ketua']
+                       || (peran() == 'pembina' && binaan(bp))
                        || (peran() == 'pengurus' && bp in bpSaya()));
-      allow delete: if peran() == 'super';
+
+      allow delete: if peran() == 'super'
+                    || (peran() == 'pengurus' && bp in bpSaya());
     }
 
     match /{semua=**} {

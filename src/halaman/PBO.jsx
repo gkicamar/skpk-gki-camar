@@ -2,16 +2,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   collection, doc, onSnapshot, setDoc, getDoc, deleteDoc, serverTimestamp, query, where,
 } from 'firebase/firestore';
-import { db } from '../firebase/config.js';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../firebase/config.js';
 import { useAuth } from '../konteks/Auth.jsx';
 import { InputRupiah, PilihBP } from '../komponen/Dasar.jsx';
 import { susunHierarki } from './Beranda.jsx';
 import {
   rp, periodeTP, labelPeriode, labelBulanPendek, tanggalPanjang, tpBerjalan, hariIni,
+  kompresGambar, ukuranBerkas,
 } from '../util/format.js';
 import {
   Plus, Pencil, Trash2, X, Save, Send, CheckCircle2, Undo2, Printer, Info,
-  AlertTriangle, ChevronDown, ChevronRight, Banknote, ShieldCheck, Lock, KeyRound,
+  AlertTriangle, ChevronDown, ChevronRight, Banknote, ShieldCheck, Lock, KeyRound, Paperclip, Receipt,
 } from 'lucide-react';
 
 const STATUS = {
@@ -130,11 +132,12 @@ export default function PBO({ beritahu }) {
     }
   };
 
-  const simpanCair = async ({ pbo, tglCair, akun, catatan }) => {
+  const simpanCair = async ({ pbo, tglCair, akun, catatan, bukti }) => {
     const riwayat = [...(pbo.riwayat || []),
       { tgl: hariIni(), oleh: profil?.nama || '', tindakan: 'cair', catatan }].slice(-20);
     await setDoc(doc(db, 'pbo', pbo.id), {
       status: 'dicairkan', tglCair, akunCair: akun, catatanCair: catatan,
+      ...(bukti ? { buktiCair: bukti } : {}),
       dicairkanOleh: profil?.nama || '', riwayat, diperbarui: serverTimestamp(),
     }, { merge: true });
     setCairkan(null);
@@ -253,7 +256,7 @@ export default function PBO({ beritahu }) {
       )}
       {verifikasi && <DialogVerifikasi pbo={verifikasi.pbo} tahap={verifikasi.tahap} namaBP={namaBP}
         onBatal={() => setVerifikasi(null)} onSimpan={putusan} />}
-      {cairkan && <DialogCair pbo={cairkan} onBatal={() => setCairkan(null)} onSimpan={simpanCair} />}
+      {cairkan && <DialogCair pbo={cairkan} beritahu={beritahu} onBatal={() => setCairkan(null)} onSimpan={simpanCair} />}
       {hapus && (
         <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center p-4 py-10 z-50 overflow-y-auto overscroll-contain">
           <div className="bg-white rounded-lg w-full max-w-sm p-5 my-auto mx-auto">
@@ -402,9 +405,19 @@ function BarisPBO({ pbo, namaBP, peran, milik, departemen, terbuka, onBuka, onSu
                 <p className="text-[10px] uppercase tracking-wider text-stone-500 mb-0.5">Sumber dana</p>
                 <p>{DANA[pbo.dana] || pbo.dana}</p>
                 {pbo.status === 'dicairkan' && (
-                  <p className="text-teal-800 mt-1">
-                    Cair {tanggalPanjang(pbo.tglCair)} dari {pbo.akunCair}
-                  </p>
+                  <>
+                    <p className="text-teal-800 mt-1">
+                      Cair {tanggalPanjang(pbo.tglCair)} dari {pbo.akunCair}
+                    </p>
+                    {pbo.buktiCair ? (
+                      <a href={pbo.buktiCair.url} target="_blank" rel="noreferrer"
+                        className="mt-1 inline-flex items-center gap-1.5 text-[12px] px-2 py-1 rounded border border-stone-300 hover:bg-stone-50">
+                        <Receipt size={12} /> {pbo.buktiCair.nama}
+                      </a>
+                    ) : (
+                      <p className="text-[11px] text-amber-700 mt-1">tanpa bukti transfer</p>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -889,10 +902,34 @@ function DialogVerifikasi({ pbo, tahap, namaBP, onBatal, onSimpan }) {
   );
 }
 
-function DialogCair({ pbo, onBatal, onSimpan }) {
+function DialogCair({ pbo, beritahu, onBatal, onSimpan }) {
   const [tglCair, setTglCair] = useState(hariIni());
   const [akun, setAkun] = useState(pbo.dana === 'BTH' ? 'BNI-BTH' : 'BCA-OPS');
   const [catatan, setCatatan] = useState('');
+  const [bukti, setBukti] = useState(null);
+  const [unggah, setUnggah] = useState(false);
+
+  const pilihBukti = async (e) => {
+    const berkas = e.target.files?.[0];
+    e.target.value = '';
+    if (!berkas) return;
+    setUnggah(true);
+    try {
+      const kecil = await kompresGambar(berkas);
+      if (kecil.size > 2 * 1024 * 1024) {
+        beritahu(`Berkas masih ${ukuranBerkas(kecil.size)}, terlalu besar`, 'info');
+      } else {
+        const id = 'F' + Date.now();
+        const acuan = ref(storage, `lampiran/${pbo.bp}/${id}_${kecil.name}`);
+        await uploadBytes(acuan, kecil);
+        const url = await getDownloadURL(acuan);
+        setBukti({ id, nama: kecil.name, ukuran: kecil.size, jenis: 'pencairan', url, jalur: acuan.fullPath });
+      }
+    } catch (err) {
+      beritahu('Gagal mengunggah bukti. Periksa apakah Storage sudah aktif.', 'info');
+    }
+    setUnggah(false);
+  };
 
   return (
     <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center p-4 py-10 z-50 overflow-y-auto overscroll-contain">
@@ -930,6 +967,28 @@ function DialogCair({ pbo, onBatal, onSimpan }) {
             </select>
           </div>
           <div>
+            <label className="block text-[11px] text-stone-500 mb-1">Bukti transfer</label>
+            {bukti ? (
+              <div className="flex items-center gap-2 px-3 py-2 border border-teal-200 bg-teal-50 rounded-md">
+                <Receipt size={14} className="text-teal-700 shrink-0" />
+                <a href={bukti.url} target="_blank" rel="noreferrer" className="text-[13px] flex-1 truncate">{bukti.nama}</a>
+                <button onClick={() => setBukti(null)} className="text-stone-400 hover:text-red-600"><X size={14} /></button>
+              </div>
+            ) : (
+              <label className="flex items-center gap-2.5 px-3 py-2.5 border-2 border-dashed border-stone-300 rounded-md cursor-pointer hover:border-teal-600">
+                <Paperclip size={16} className="text-stone-400" />
+                <span className="text-sm text-stone-500 flex-1">
+                  {unggah ? 'Mengunggah…' : 'Pilih foto bukti transfer'}
+                </span>
+                <input type="file" accept="image/*,.pdf" className="hidden" onChange={pilihBukti} disabled={unggah} />
+              </label>
+            )}
+            <p className="text-[11px] text-stone-500 mt-1">
+              Dilihat badan pelayanan sebagai tanda dananya sudah dikirim
+            </p>
+          </div>
+
+          <div>
             <label className="block text-[11px] text-stone-500 mb-1">Catatan (opsional)</label>
             <input value={catatan} onChange={(e) => setCatatan(e.target.value)}
               placeholder="Misalnya: transfer BI-Fast"
@@ -939,8 +998,8 @@ function DialogCair({ pbo, onBatal, onSimpan }) {
 
         <div className="flex justify-end gap-2 mt-5">
           <button onClick={onBatal} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
-          <button onClick={() => onSimpan({ pbo, tglCair, akun, catatan: catatan.trim() })}
-            className="px-4 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 flex items-center gap-1.5">
+          <button onClick={() => onSimpan({ pbo, tglCair, akun, catatan: catatan.trim(), bukti })} disabled={unggah}
+            className="px-4 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 disabled:bg-stone-300 flex items-center gap-1.5">
             <Save size={15} /> Simpan
           </button>
         </div>

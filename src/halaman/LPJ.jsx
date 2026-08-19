@@ -20,7 +20,8 @@ const STATUS = {
   diajukan:         { label: 'Menunggu pembina',    warna: 'bg-amber-50 text-amber-900' },
   diperiksaPembina: { label: 'Menunggu bendahara',  warna: 'bg-blue-50 text-blue-900' },
   disetujui:        { label: 'Menunggu penyelesaian', warna: 'bg-indigo-50 text-indigo-900' },
-  selesai:          { label: 'Selesai',              warna: 'bg-teal-50 text-teal-900' },
+  buktiDikirim:     { label: 'Bukti dikirim',         warna: 'bg-purple-50 text-purple-900' },
+  selesai:          { label: 'Selesai',               warna: 'bg-teal-50 text-teal-900' },
   dikembalikan:     { label: 'Dikembalikan',         warna: 'bg-red-50 text-red-900' },
 };
 
@@ -167,6 +168,22 @@ export default function LPJ({ beritahu }) {
     }
   };
 
+  // Pengembalian sisa dikirim pengaju lebih dulu, lalu dicocokkan bendahara.
+  const kirimBukti = async ({ lpj, tgl, aktual, akun, catatan, bukti }) => {
+    try {
+      await setDoc(doc(db, 'lpj', lpj.id), {
+        status: 'buktiDikirim',
+        penyelesaian: { tgl, aktual, akun, catatan, oleh: profil?.nama || '', verifikasi: 'Menunggu' },
+        ...(bukti ? { lampiran: [...(lpj.lampiran || []), bukti] } : {}),
+        diperbarui: serverTimestamp(),
+      }, { merge: true });
+      setSelesaikan(null);
+      beritahu('Bukti terkirim, menunggu pencocokan bendahara');
+    } catch (e) {
+      beritahu(`Gagal menyimpan: ${e.message || e.code}`, 'info');
+    }
+  };
+
   const bpMilik = bpDaftar.filter((b) => bpSaya.includes(b.kode));
 
   return (
@@ -245,7 +262,7 @@ export default function LPJ({ beritahu }) {
                 terbuka={buka === l.id} onBuka={() => setBuka(buka === l.id ? null : l.id)}
                 onSunting={() => setForm({ ...l, baru: false })}
                 onVerifikasi={(tahap) => setVerifikasi({ lpj: l, tahap })}
-                onSelesaikan={() => setSelesaikan(l)} />
+                onSelesaikan={(mode) => setSelesaikan({ lpj: l, mode })} />
             ))}
             {tersaring.length > tampil && (
               <div className="px-4 py-3 text-center no-print">
@@ -269,8 +286,9 @@ export default function LPJ({ beritahu }) {
           onBatal={() => setVerifikasi(null)} onSimpan={putusan} />
       )}
       {selesaikan && (
-        <DialogPenyelesaian lpj={selesaikan} namaBP={namaBP} beritahu={beritahu}
-          onBatal={() => setSelesaikan(null)} onSimpan={simpanPenyelesaian} />
+        <DialogPenyelesaian lpj={selesaikan.lpj} mode={selesaikan.mode} namaBP={namaBP} beritahu={beritahu}
+          onBatal={() => setSelesaikan(null)}
+          onSimpan={selesaikan.mode === 'kirim' ? kirimBukti : simpanPenyelesaian} />
       )}
     </div>
   );
@@ -288,7 +306,10 @@ function BarisLPJ({ lpj, namaBP, peran, milik, punyaSendiri, terbuka, onBuka, on
   const bolehSunting = punyaSendiri && ['draf', 'dikembalikan'].includes(lpj.status);
   const giliranPembina = lpj.status === 'diajukan' && (peran === 'super' || (peran === 'pembina' && milik));
   const giliranBendahara = lpj.status === 'diperiksaPembina' && bendahara;
-  const giliranSelesai = lpj.status === 'disetujui' && bendahara;
+  // Sisa dikembalikan pengaju; kekurangan ditransfer bendahara.
+  const giliranKirimBukti = lpj.status === 'disetujui' && sisa > 0 && punyaSendiri;
+  const giliranPelunasan = lpj.status === 'disetujui' && sisa < 0 && bendahara;
+  const giliranCocokkan = lpj.status === 'buktiDikirim' && bendahara;
 
   return (
     <div className="px-4 py-3">
@@ -327,10 +348,22 @@ function BarisLPJ({ lpj, namaBP, peran, milik, punyaSendiri, terbuka, onBuka, on
               <button onClick={() => onVerifikasi('bendahara')}
                 className="text-[12px] px-2.5 py-1 border border-teal-600 text-teal-800 rounded-md hover:bg-teal-50">Verifikasi</button>
             )}
-            {giliranSelesai && (
-              <button onClick={onSelesaikan}
+            {giliranKirimBukti && (
+              <button onClick={() => onSelesaikan('kirim')}
                 className="text-[12px] px-2.5 py-1 border border-teal-600 text-teal-800 rounded-md hover:bg-teal-50 flex items-center gap-1">
-                <Banknote size={12} /> {sisa > 0 ? 'Catat pengembalian' : 'Catat pelunasan'}
+                <Paperclip size={12} /> Kirim bukti pengembalian
+              </button>
+            )}
+            {giliranPelunasan && (
+              <button onClick={() => onSelesaikan('lunasi')}
+                className="text-[12px] px-2.5 py-1 border border-teal-600 text-teal-800 rounded-md hover:bg-teal-50 flex items-center gap-1">
+                <Banknote size={12} /> Catat pelunasan
+              </button>
+            )}
+            {giliranCocokkan && (
+              <button onClick={() => onSelesaikan('cocokkan')}
+                className="text-[12px] px-2.5 py-1 border border-teal-600 text-teal-800 rounded-md hover:bg-teal-50 flex items-center gap-1">
+                <CheckCircle2 size={12} /> Cocokkan bukti
               </button>
             )}
           </div>
@@ -344,9 +377,19 @@ function BarisLPJ({ lpj, namaBP, peran, milik, punyaSendiri, terbuka, onBuka, on
               <Banknote size={14} className="text-indigo-800 mt-0.5 shrink-0" />
               <p className="text-[12px] text-indigo-900">
                 LPJ sudah disetujui bendahara. {sisa > 0
-                  ? `Menunggu sisa ${rp(sisa)} dikembalikan ke rekening gereja.`
-                  : `Menunggu kekurangan ${rp(-sisa)} dibayarkan gereja.`}
-                {' '}PBO bulan berikutnya baru terbuka setelah ini dicatat.
+                  ? `Badan pelayanan mengembalikan sisa ${rp(sisa)} ke rekening gereja, lalu mengunggah bukti transfernya.`
+                  : `Bendahara mentransfer kekurangan ${rp(-sisa)} lalu mengunggah bukti transfernya.`}
+                {' '}PBO bulan berikutnya baru terbuka setelah ini tuntas.
+              </p>
+            </div>
+          )}
+          {lpj.status === 'buktiDikirim' && (
+            <div className="bg-purple-50 border border-purple-200 rounded-md px-3 py-2 flex items-start gap-2">
+              <Paperclip size={14} className="text-purple-800 mt-0.5 shrink-0" />
+              <p className="text-[12px] text-purple-900">
+                Bukti pengembalian {rp(lpj.penyelesaian?.aktual)} sudah dikirim
+                {lpj.penyelesaian?.oleh ? ` oleh ${lpj.penyelesaian.oleh}` : ''}
+                {' '}pada {tanggalPanjang(lpj.penyelesaian?.tgl)}. Menunggu bendahara mencocokkan dengan mutasi bank.
               </p>
             </div>
           )}
@@ -403,7 +446,7 @@ function BarisLPJ({ lpj, namaBP, peran, milik, punyaSendiri, terbuka, onBuka, on
             )}
           </div>
 
-          {lpj.penyelesaian && (
+          {lpj.penyelesaian && lpj.status === 'selesai' && (
             <div className={`rounded-md px-3 py-2 ${
               lpj.penyelesaian.verifikasi === 'Sesuai' ? 'bg-teal-50 text-teal-900' : 'bg-red-50 text-red-900'}`}>
               <p className="text-[12px] font-medium">
@@ -866,6 +909,15 @@ function DialogVerifikasi({ lpj, tahap, namaBP, onBatal, onSimpan }) {
         </div>
 
         <div className="p-5 space-y-4">
+          <p className="text-[12px] bg-stone-50 text-stone-700 px-3 py-2 rounded flex items-start gap-1.5">
+            <Info size={14} className="mt-px shrink-0" />
+            {cocokkan
+              ? 'Cocokkan nominal yang benar-benar masuk ke rekening gereja dengan angka pada bukti yang dikirim badan pelayanan.'
+              : kirimMode
+              ? 'Transfer sisa ke rekening gereja lebih dulu, lalu unggah bukti transfernya di sini. Bendahara yang akan mencocokkannya dengan mutasi bank.'
+              : 'Bendahara mentransfer kekurangan ke badan pelayanan, lalu mengunggah bukti transfernya. Setelah tersimpan, LPJ ini tuntas.'}
+          </p>
+
           <div className="bg-stone-50 rounded-md px-4 py-3 space-y-1.5 text-sm">
             {[['PBO dicairkan', rp(lpj.totalPBO)], ['Donatur', rp(lpj.donatur || 0)],
               ['Realisasi', rp(realisasi)],
@@ -939,22 +991,29 @@ function DialogVerifikasi({ lpj, tahap, namaBP, onBatal, onSimpan }) {
 
 // Sisa baru boleh dikembalikan setelah bendahara menetapkan berapa realisasi
 // yang diterima. Bukti transfernya diunggah di sini, bukan saat menyusun LPJ.
-function DialogPenyelesaian({ lpj, namaBP, beritahu, onBatal, onSimpan }) {
+function DialogPenyelesaian({ lpj, mode, namaBP, beritahu, onBatal, onSimpan }) {
   const realisasi = jumlahRealisasi(lpj);
   const harus = (Number(lpj.totalPBO) || 0) + (Number(lpj.donatur) || 0) - realisasi;
   const kembali = harus > 0;
   const seharusnya = Math.abs(harus);
 
-  const [tgl, setTgl] = useState(hariIni());
-  const [aktual, setAktual] = useState(seharusnya);
-  const [akun, setAkun] = useState('BCA-OPS');
-  const [catatan, setCatatan] = useState('');
+  const cocokkan = mode === 'cocokkan';
+  const kirimMode = mode === 'kirim';
+  const lama = lpj.penyelesaian || {};
+
+  const [tgl, setTgl] = useState(lama.tgl || hariIni());
+  const [aktual, setAktual] = useState(lama.aktual ?? seharusnya);
+  const [akun, setAkun] = useState(lama.akun || 'BCA-OPS');
+  const [catatan, setCatatan] = useState(lama.catatan || '');
   const [bukti, setBukti] = useState(null);
   const [unggah, setUnggah] = useState(false);
 
+  const buktiLama = (lpj.lampiran || []).filter((f) => f.jenis === 'pengembalian');
+
   const beda = Math.abs(Number(aktual) - seharusnya);
   const cocok = beda < 1;
-  const boleh = Number(aktual) > 0 && (cocok || catatan.trim().length >= 10);
+  const boleh = Number(aktual) > 0 && (cocok || catatan.trim().length >= 10)
+    && (!kirimMode || bukti || buktiLama.length > 0);
 
   const pilihBukti = async (e) => {
     const berkas = e.target.files?.[0];
@@ -987,7 +1046,9 @@ function DialogPenyelesaian({ lpj, namaBP, beritahu, onBatal, onSimpan }) {
           </span>
           <div className="min-w-0">
             <h3 className="text-base font-medium">
-              {kembali ? 'Catat pengembalian sisa' : 'Catat pelunasan kekurangan'}
+              {cocokkan ? 'Cocokkan bukti pengembalian'
+                : kirimMode ? 'Kirim bukti pengembalian'
+                : 'Catat pelunasan kekurangan'}
             </h3>
             <p className="text-[11px] text-stone-500 truncate">
               {namaBP(lpj.bp)} · {labelPeriode(lpj.periodeAnggaran)}
@@ -996,6 +1057,15 @@ function DialogPenyelesaian({ lpj, namaBP, beritahu, onBatal, onSimpan }) {
         </div>
 
         <div className="p-5 space-y-4">
+          <p className="text-[12px] bg-stone-50 text-stone-700 px-3 py-2 rounded flex items-start gap-1.5">
+            <Info size={14} className="mt-px shrink-0" />
+            {cocokkan
+              ? 'Cocokkan nominal yang benar-benar masuk ke rekening gereja dengan angka pada bukti yang dikirim badan pelayanan.'
+              : kirimMode
+              ? 'Transfer sisa ke rekening gereja lebih dulu, lalu unggah bukti transfernya di sini. Bendahara yang akan mencocokkannya dengan mutasi bank.'
+              : 'Bendahara mentransfer kekurangan ke badan pelayanan, lalu mengunggah bukti transfernya. Setelah tersimpan, LPJ ini tuntas.'}
+          </p>
+
           <div className="bg-stone-50 rounded-md px-4 py-3 space-y-1.5 text-sm">
             {[['PBO dicairkan', rp(lpj.totalPBO)], ['Donatur', rp(lpj.donatur || 0)],
               ['Realisasi menurut LPJ', rp(realisasi)],
@@ -1042,8 +1112,24 @@ function DialogPenyelesaian({ lpj, namaBP, beritahu, onBatal, onSimpan }) {
             {!cocok && <p className="text-[11px] mt-1.5">Ditandai untuk diperiksa. Catatan wajib diisi.</p>}
           </div>
 
+          {buktiLama.length > 0 && (
+            <div>
+              <p className="text-[11px] text-stone-500 mb-1">Bukti yang sudah dikirim</p>
+              {buktiLama.map((f) => (
+                <a key={f.id} href={f.url} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-2 px-3 py-2 border border-stone-200 rounded-md hover:bg-stone-50">
+                  <Receipt size={14} className="text-stone-500 shrink-0" />
+                  <span className="text-[13px] flex-1 truncate">{f.nama}</span>
+                  <span className="text-[11px] text-stone-400 shrink-0">{ukuranBerkas(f.ukuran)}</span>
+                </a>
+              ))}
+            </div>
+          )}
+
           <div>
-            <label className="block text-[11px] text-stone-500 mb-1">Bukti transfer</label>
+            <label className="block text-[11px] text-stone-500 mb-1">
+              Bukti transfer{kirimMode && buktiLama.length === 0 ? ' · wajib' : ''}
+            </label>
             {bukti ? (
               <div className="flex items-center gap-2 px-3 py-2 border border-teal-200 bg-teal-50 rounded-md">
                 <Receipt size={14} className="text-teal-700 shrink-0" />
@@ -1060,7 +1146,9 @@ function DialogPenyelesaian({ lpj, namaBP, beritahu, onBatal, onSimpan }) {
                 <input type="file" accept="image/*,.pdf" className="hidden" onChange={pilihBukti} disabled={unggah} />
               </label>
             )}
-            <p className="text-[11px] text-stone-500 mt-1">Boleh dilewati, tetapi sebaiknya dilampirkan</p>
+            <p className="text-[11px] text-stone-500 mt-1">
+              {kirimMode ? 'Wajib dilampirkan sebagai dasar pencocokan bendahara' : 'Boleh dilewati, tetapi sebaiknya dilampirkan'}
+            </p>
           </div>
 
           <div>
@@ -1078,10 +1166,10 @@ function DialogPenyelesaian({ lpj, namaBP, beritahu, onBatal, onSimpan }) {
           <button onClick={onBatal} className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50">Batal</button>
           <button onClick={() => onSimpan({
             lpj, tgl, aktual: Number(aktual), akun, catatan: catatan.trim(), bukti,
-            verifikasiUang: cocok ? 'Sesuai' : 'Selisih',
+            ...(kirimMode ? {} : { verifikasiUang: cocok ? 'Sesuai' : 'Selisih' }),
           })} disabled={!boleh || unggah}
             className="px-4 py-2 text-sm bg-teal-700 text-white rounded-md hover:bg-teal-800 disabled:bg-stone-300 flex items-center gap-1.5">
-            <Save size={15} /> Simpan dan tutup
+            <Save size={15} /> {kirimMode ? 'Kirim ke bendahara' : 'Simpan dan tutup'}
           </button>
         </div>
       </div>
