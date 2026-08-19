@@ -7,6 +7,7 @@ import { Beranda, DataInduk } from './halaman/Beranda.jsx';
 import KelolaPengguna from './halaman/KelolaPengguna.jsx';
 import ProgramKerja from './halaman/ProgramKerja.jsx';
 import PBO from './halaman/PBO.jsx';
+import LPJ from './halaman/LPJ.jsx';
 import { boleh } from './util/peran.js';
 
 export default function App() {
@@ -70,6 +71,8 @@ export default function App() {
           <ProgramKerja beritahu={beritahu} />
         ) : tab === 'pbo' ? (
           <PBO beritahu={beritahu} />
+        ) : tab === 'lpj' ? (
+          <LPJ beritahu={beritahu} />
         ) : tab === 'pengguna' ? (
           <KelolaPengguna beritahu={beritahu} />
         ) : tab === 'pengaturan' ? (

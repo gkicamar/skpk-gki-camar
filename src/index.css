@@ -5,6 +5,10 @@
 html, body, #root { height: 100%; }
 body { -webkit-tap-highlight-color: transparent; }
 
+/* Gulir sentuh pada peramban Android perlu dinyatakan tegas, terutama
+   di dalam wadah yang posisinya fixed seperti modal. */
+.overflow-y-auto, .overflow-auto { -webkit-overflow-scrolling: touch; }
+
 @media print {
   html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
   .no-print { display: none !important; }

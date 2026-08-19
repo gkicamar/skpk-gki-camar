@@ -82,3 +82,29 @@ export const angkaDari = (teks) => {
   const digit = String(teks ?? '').replace(/[^0-9]/g, '');
   return digit ? Number(digit) : 0;
 };
+
+/**
+ * Perkecil gambar di peramban sebelum diunggah. Foto nota dari kamera ponsel
+ * biasanya tiga sampai lima megabita; setelah ini umumnya di bawah empat ratus
+ * kilobita tanpa kehilangan keterbacaan angka.
+ */
+export const kompresGambar = async (berkas, maksSisi = 1600, mutu = 0.8) => {
+  if (!berkas.type.startsWith('image/')) return berkas;
+  try {
+    const gambar = await createImageBitmap(berkas);
+    const skala = Math.min(1, maksSisi / Math.max(gambar.width, gambar.height));
+    if (skala === 1 && berkas.size < 400 * 1024) return berkas;
+    const kanvas = document.createElement('canvas');
+    kanvas.width = Math.round(gambar.width * skala);
+    kanvas.height = Math.round(gambar.height * skala);
+    kanvas.getContext('2d').drawImage(gambar, 0, 0, kanvas.width, kanvas.height);
+    const blob = await new Promise((res) => kanvas.toBlob(res, 'image/jpeg', mutu));
+    if (!blob || blob.size >= berkas.size) return berkas;
+    return new File([blob], berkas.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch (e) {
+    return berkas;
+  }
+};
+
+export const ukuranBerkas = (b) =>
+  b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB';

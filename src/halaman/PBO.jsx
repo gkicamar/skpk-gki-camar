@@ -41,6 +41,7 @@ export default function PBO({ beritahu }) {
   const [verifikasi, setVerifikasi] = useState(null);
   const [cairkan, setCairkan] = useState(null);
   const [hapus, setHapus] = useState(null);
+  const [tampil, setTampil] = useState(20);
 
   const bulan = useMemo(() => periodeTP(tahun), [tahun]);
 
@@ -83,6 +84,8 @@ export default function PBO({ beritahu }) {
     .filter((p) => bpSaring === 'SEMUA' || p.bp === bpSaring)
     .sort((a, b) => (b.tglAjukan || '').localeCompare(a.tglAjukan || '')),
     [daftar, tahun, periode, bpSaring]);
+
+  useEffect(() => setTampil(20), [tahun, periode, bpSaring]);
 
   const jumlahStatus = (st) => tersaring.filter((p) => p.status === st).reduce((s, p) => s + totalPBO(p), 0);
 
@@ -222,7 +225,7 @@ export default function PBO({ beritahu }) {
           </div>
         ) : (
           <div className="divide-y divide-stone-100">
-            {tersaring.map((p) => (
+            {tersaring.slice(0, tampil).map((p) => (
               <BarisPBO key={p.id} pbo={p} namaBP={namaBP} peran={peran} milik={jangkauan.includes(p.bp)}
                 departemen={Boolean(bpDaftar.find((b) => b.kode === p.bp)?.divisi)}
                 terbuka={buka === p.id} onBuka={() => setBuka(buka === p.id ? null : p.id)}
@@ -231,6 +234,15 @@ export default function PBO({ beritahu }) {
                 onCairkan={() => setCairkan(p)}
                 onHapus={() => setHapus(p)} />
             ))}
+            {tersaring.length > tampil && (
+              <div className="px-4 py-3 text-center no-print">
+                <button onClick={() => setTampil((v) => v + 20)}
+                  className="text-[13px] px-3 py-2 border border-stone-300 rounded-md hover:bg-stone-50">
+                  Tampilkan {Math.min(20, tersaring.length - tampil)} lagi
+                  <span className="text-stone-500"> · sisa {tersaring.length - tampil}</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -549,7 +561,7 @@ function FormPBO({ isi, bpMilik, daftar, tahun, bulan, peran, profil, onBatal, o
   });
 
   return (
-    <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center z-50 overflow-y-auto overscroll-contain">
+    <div className="fixed inset-0 bg-stone-900/40 flex items-start justify-center z-50 overflow-y-auto overscroll-contain p-0 md:p-4">
       <div className="bg-white w-full max-w-2xl my-0 md:my-8 md:rounded-lg">
         <div className="px-5 py-4 border-b border-stone-200 flex justify-between items-center">
           <div>

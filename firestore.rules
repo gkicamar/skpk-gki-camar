@@ -205,16 +205,22 @@ service cloud.firestore {
         || binaan(resource.data.bp)
       );
 
+      // LPJ disusun badan pelayanan sendiri, diperiksa pembina, lalu
+      // disetujui bendahara. Bendahara dan ketua juga menyusun LPJ
+      // untuk badan pelayanan struktural yang ditugaskan padanya.
       allow create: if isSuper()
-                    || (isPengurus() && request.resource.data.bp in bpSaya());
+                    || ((isPengurus() || isPembina() || isBendahara() || isKetua())
+                        && request.resource.data.bp in bpSaya());
 
-      allow update: if isSuper() || isBendahara()
+      allow update: if isSuper() || isBendahara() || isKetua()
                     || (isPembina() && binaan(resource.data.bp))
-                    || (isPengurus() && resource.data.bp in bpSaya()
+                    || ((isPengurus() || isBendahara() || isKetua())
+                        && resource.data.bp in bpSaya()
                         && resource.data.status in ['draf', 'dikembalikan']);
 
       allow delete: if isSuper()
-                    || (isPengurus() && resource.data.bp in bpSaya()
+                    || ((isPengurus() || isBendahara() || isKetua())
+                        && resource.data.bp in bpSaya()
                         && resource.data.status == 'draf');
     }
 
