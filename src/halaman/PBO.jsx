@@ -47,24 +47,33 @@ export default function PBO({ beritahu }) {
   useEffect(() => onSnapshot(collection(db, 'badanPelayanan'), (s) =>
     setBpDaftar(s.docs.map((x) => ({ kode: x.id, ...x.data() })).filter((x) => x.aktif !== false))), []);
 
+  // Kewenangan pembina menurun dari divisi ke departemen di bawahnya, jadi
+  // jangkauannya diperluas lebih dulu supaya kuerinya ikut mencakup mereka.
+  const jangkauan = useMemo(() => {
+    if (peran !== 'pembina') return bpSaya;
+    const turunan = bpDaftar.filter((b) => b.divisi && bpSaya.includes(b.divisi)).map((b) => b.kode);
+    return [...new Set([...bpSaya, ...turunan])];
+  }, [peran, bpSaya, bpDaftar]);
+
   // Pengurus dan pembina hanya boleh membaca PBO badan pelayanannya. Kueri
   // disaring lebih dulu supaya sesuai aturan keamanan, karena Firestore
   // menolak kueri yang jangkauannya memuat dokumen tak berhak dibaca.
   useEffect(() => {
     setGalat('');
-    if (!pusat && bpSaya.length === 0) { setDaftar([]); return; }
+    if (!pusat && jangkauan.length === 0) { setDaftar([]); return; }
     const acuan = pusat
       ? collection(db, 'pbo')
-      : query(collection(db, 'pbo'), where('bp', 'in', bpSaya.slice(0, 30)));
+      : query(collection(db, 'pbo'), where('bp', 'in', jangkauan.slice(0, 30)));
     return onSnapshot(acuan,
       (s) => setDaftar(s.docs.map((x) => ({ id: x.id, ...x.data() }))),
       () => { setDaftar([]); setGalat('Tidak dapat memuat daftar PBO. Coba muat ulang halaman.'); });
-  }, [pusat, bpSaya.join(',')]);
+  }, [pusat, jangkauan.join(',')]);
 
   const { divisi, anak } = useMemo(
-    () => susunHierarki(bpDaftar.filter((b) => pusat || !b.rahasia || bpSaya.includes(b.kode))),
-    [bpDaftar, pusat, bpSaya],
+    () => susunHierarki(bpDaftar.filter((b) => pusat || !b.rahasia || jangkauan.includes(b.kode))),
+    [bpDaftar, pusat, jangkauan],
   );
+  // Yang boleh diajukan tetap hanya penugasan langsung, bukan turunannya.
   const bpMilik = bpDaftar.filter((b) => bpSaya.includes(b.kode));
   const namaBP = (k) => bpDaftar.find((b) => b.kode === k)?.nama || k;
 
@@ -218,7 +227,7 @@ export default function PBO({ beritahu }) {
         ) : (
           <div className="divide-y divide-stone-100">
             {tersaring.map((p) => (
-              <BarisPBO key={p.id} pbo={p} namaBP={namaBP} peran={peran} milik={bpSaya.includes(p.bp)}
+              <BarisPBO key={p.id} pbo={p} namaBP={namaBP} peran={peran} milik={jangkauan.includes(p.bp)}
                 departemen={Boolean(bpDaftar.find((b) => b.kode === p.bp)?.divisi)}
                 terbuka={buka === p.id} onBuka={() => setBuka(buka === p.id ? null : p.id)}
                 onSunting={() => setForm({ ...p, baru: false })}

@@ -59,9 +59,23 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/badanPelayanan/$(kode)).data.get('rahasia', false) == true;
     }
 
+    // Induk divisi sebuah badan pelayanan, kosong bila ia sendiri sebuah divisi.
+    function indukBP(kode) {
+      return exists(/databases/$(database)/documents/badanPelayanan/$(kode))
+        ? get(/databases/$(database)/documents/badanPelayanan/$(kode)).data.get('divisi', '')
+        : '';
+    }
+
+    // Kewenangan menurun dari divisi ke departemen di bawahnya. Pembina yang
+    // ditugaskan pada sebuah divisi otomatis membina seluruh departemennya,
+    // sesuai kedudukan Majelis Jemaat sebagai otoritas badan pelayanan.
+    function binaan(kode) {
+      return kode in bpSaya() || indukBP(kode) in bpSaya();
+    }
+
     // Boleh membuka dokumen milik badan pelayanan tertentu.
     function bolehLihat(kode) {
-      return pusat() || kode in bpSaya() || !rahasiaBP(kode);
+      return pusat() || binaan(kode) || !rahasiaBP(kode);
     }
 
     // Badan pelayanan yang menjadi tanggung jawab pengguna ini,
@@ -131,13 +145,13 @@ service cloud.firestore {
       allow read: if aktif() && (resource == null || bolehLihat(resource.data.bp));
 
       allow create: if isSuper()
-                    || (isPembina() && request.resource.data.bp in bpSaya())
+                    || (isPembina() && binaan(request.resource.data.bp))
                     || (isPengurus()
                         && request.resource.data.bp in bpSaya()
                         && request.resource.data.status == 'draf');
 
       allow update: if isSuper()
-                    || (isPembina() && resource.data.bp in bpSaya())
+                    || (isPembina() && binaan(resource.data.bp))
                     || (isPengurus()
                         && resource.data.bp in bpSaya()
                         && resource.data.status in ['draf', 'dikembalikan']
@@ -158,25 +172,25 @@ service cloud.firestore {
       allow read: if aktif() && (
         resource == null
         || pusat()
-        || resource.data.bp in bpSaya()
+        || binaan(resource.data.bp)
       );
 
       // Pengajuan boleh dibuat pengurus maupun pembina, karena divisi seperti
       // Litbang dan Sarpen menjalankan programnya sendiri tanpa departemen.
       allow create: if isSuper()
                     || ((isPengurus() || isPembina())
-                        && request.resource.data.bp in bpSaya()
+                        && binaan(request.resource.data.bp)
                         && request.resource.data.status in ['diajukan', 'diperiksaPembina']);
 
       // Verifikasi berjenjang: pembina memeriksa pengajuan departemen binaannya,
       // lalu bendahara memberi persetujuan akhir dan mencatat pencairan.
       allow update: if isSuper() || isBendahara() || isKetua()
-                    || (isPembina() && resource.data.bp in bpSaya())
-                    || ((isPengurus() || isPembina()) && resource.data.bp in bpSaya()
+                    || (isPembina() && binaan(resource.data.bp))
+                    || ((isPengurus() || isPembina()) && binaan(resource.data.bp)
                         && resource.data.status in ['diajukan', 'dikembalikan']);
 
       allow delete: if isSuper()
-                    || ((isPengurus() || isPembina()) && resource.data.bp in bpSaya()
+                    || ((isPengurus() || isPembina()) && binaan(resource.data.bp)
                         && resource.data.status in ['diajukan', 'dikembalikan']);
     }
 
@@ -186,14 +200,14 @@ service cloud.firestore {
       allow read: if aktif() && (
         resource == null
         || pusat()
-        || resource.data.bp in bpSaya()
+        || binaan(resource.data.bp)
       );
 
       allow create: if isSuper()
                     || (isPengurus() && request.resource.data.bp in bpSaya());
 
       allow update: if isSuper() || isBendahara()
-                    || (isPembina() && resource.data.bp in bpSaya())
+                    || (isPembina() && binaan(resource.data.bp))
                     || (isPengurus() && resource.data.bp in bpSaya()
                         && resource.data.status in ['draf', 'dikembalikan']);
 

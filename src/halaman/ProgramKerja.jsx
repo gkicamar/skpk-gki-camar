@@ -47,8 +47,14 @@ export default function ProgramKerja({ beritahu }) {
   }), [bpSaya]);
 
   const pusat = ['super', 'ketua', 'bendahara'].includes(peran);
-  const bolehLihat = (b) => pusat || !b.rahasia || bpSaya.includes(b.kode);
-  const bpTampil = useMemo(() => bpDaftar.filter(bolehLihat), [bpDaftar, peran, bpSaya]);
+  // Pembina yang ditugaskan pada divisi otomatis membina departemennya.
+  const jangkauan = useMemo(() => {
+    if (peran !== 'pembina') return bpSaya;
+    const turunan = bpDaftar.filter((b) => b.divisi && bpSaya.includes(b.divisi)).map((b) => b.kode);
+    return [...new Set([...bpSaya, ...turunan])];
+  }, [peran, bpSaya, bpDaftar]);
+  const bolehLihat = (b) => pusat || !b.rahasia || jangkauan.includes(b.kode);
+  const bpTampil = useMemo(() => bpDaftar.filter(bolehLihat), [bpDaftar, peran, jangkauan]);
   const { divisi, anak } = useMemo(() => susunHierarki(bpTampil), [bpTampil]);
   const bpObj = bpDaftar.find((b) => b.kode === bpAktif);
   const indukObj = bpDaftar.find((b) => b.kode === bpObj?.divisi);
@@ -105,7 +111,7 @@ export default function ProgramKerja({ beritahu }) {
     return () => { batal = true; };
   }, [tahun, kodeAnggota]);
 
-  const milikSaya = bpSaya.includes(bpAktif);
+  const milikSaya = jangkauan.includes(bpAktif);
   const status = dok?.status || 'draf';
   const bolehSunting =
     peran === 'super'
