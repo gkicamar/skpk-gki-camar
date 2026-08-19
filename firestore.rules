@@ -212,11 +212,13 @@ service cloud.firestore {
                     || ((isPengurus() || isPembina() || isBendahara() || isKetua())
                         && request.resource.data.bp in bpSaya());
 
+      // Penyusun boleh mengubah saat masih draf atau dikembalikan, dan boleh
+      // mengirim bukti pengembalian setelah LPJ-nya disetujui bendahara.
       allow update: if isSuper() || isBendahara() || isKetua()
                     || (isPembina() && binaan(resource.data.bp))
                     || ((isPengurus() || isBendahara() || isKetua())
                         && resource.data.bp in bpSaya()
-                        && resource.data.status in ['draf', 'dikembalikan']);
+                        && resource.data.status in ['draf', 'dikembalikan', 'disetujui']);
 
       allow delete: if isSuper()
                     || ((isPengurus() || isBendahara() || isKetua())

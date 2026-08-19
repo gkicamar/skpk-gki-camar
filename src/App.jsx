@@ -9,6 +9,7 @@ import ProgramKerja from './halaman/ProgramKerja.jsx';
 import PBO from './halaman/PBO.jsx';
 import LPJ from './halaman/LPJ.jsx';
 import { boleh } from './util/peran.js';
+import PenangkapGalat from './komponen/PenangkapGalat.jsx';
 
 export default function App() {
   const { userAuth, profil, memuat, peran, aktif, keluar } = useAuth();
@@ -63,6 +64,7 @@ export default function App() {
   return (
     <>
       <Kerangka tab={tab} setTab={setTab}>
+        <PenangkapGalat key={tab}>
         {!bolehMasuk ? (
           <BelumBerhak />
         ) : tab === 'beranda' ? (
@@ -80,6 +82,7 @@ export default function App() {
         ) : (
           <BelumDibangun tab={tab} />
         )}
+        </PenangkapGalat>
       </Kerangka>
 
       {toast && (

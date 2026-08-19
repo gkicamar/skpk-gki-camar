@@ -411,8 +411,16 @@ function BarisPBO({ pbo, namaBP, peran, milik, departemen, terbuka, onBuka, onSu
                     </p>
                     {pbo.buktiCair ? (
                       <a href={pbo.buktiCair.url} target="_blank" rel="noreferrer"
-                        className="mt-1 inline-flex items-center gap-1.5 text-[12px] px-2 py-1 rounded border border-stone-300 hover:bg-stone-50">
-                        <Receipt size={12} /> {pbo.buktiCair.nama}
+                        className="mt-1.5 block border border-stone-200 rounded-md overflow-hidden hover:border-teal-600 max-w-[200px]">
+                        {/\.pdf$/i.test(pbo.buktiCair.nama || '') ? (
+                          <div className="h-24 bg-stone-50 flex items-center justify-center">
+                            <Receipt size={20} className="text-stone-400" />
+                          </div>
+                        ) : (
+                          <img src={pbo.buktiCair.url} alt="Bukti transfer" loading="lazy"
+                            className="w-full h-24 object-cover bg-stone-50" />
+                        )}
+                        <p className="text-[10px] text-stone-600 px-2 py-1 truncate">{pbo.buktiCair.nama}</p>
                       </a>
                     ) : (
                       <p className="text-[11px] text-amber-700 mt-1">tanpa bukti transfer</p>

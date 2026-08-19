@@ -418,7 +418,12 @@ function BarisLPJ({ lpj, namaBP, peran, milik, punyaSendiri, terbuka, onBuka, on
                     <td className="px-3 py-1.5 text-stone-500">{i + 1}</td>
                     <td className="px-3 py-1.5">
                       {b.uraian}
-                      {b.evaluasi && <span className="text-[11px] text-stone-500 block">{b.evaluasi}</span>}
+                      {b.indikator && (
+                        <span className="text-[11px] text-stone-500 block">Indikator: {b.indikator}</span>
+                      )}
+                      {b.evaluasi && (
+                        <span className="text-[11px] text-stone-600 block whitespace-pre-line">{b.evaluasi}</span>
+                      )}
                     </td>
                     <td className="px-3 py-1.5 text-right text-stone-600">{b.anggaran ? rp(b.anggaran) : '—'}</td>
                     <td className="px-3 py-1.5 text-right">{b.realisasi ? rp(b.realisasi) : '—'}</td>
@@ -481,18 +486,13 @@ function BarisLPJ({ lpj, namaBP, peran, milik, punyaSendiri, terbuka, onBuka, on
           )}
 
           {lpj.lampiran?.length > 0 && (
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-stone-500 mb-1.5">Lampiran</p>
-              <div className="flex flex-wrap gap-1.5">
-                {lpj.lampiran.map((f) => (
-                  <a key={f.id} href={f.url} target="_blank" rel="noreferrer"
-                    className="text-[12px] px-2.5 py-1.5 rounded-md border border-stone-300 hover:bg-stone-50 flex items-center gap-1.5">
-                    {f.jenis === 'kegiatan' ? <Camera size={12} /> : <Receipt size={12} />}
-                    <span className="max-w-[160px] truncate">{f.nama}</span>
-                    <span className="text-stone-400">{ukuranBerkas(f.ukuran)}</span>
-                  </a>
-                ))}
-              </div>
+            <div className="space-y-3">
+              {[['nota', 'Nota dan kuitansi'], ['kegiatan', 'Dokumentasi kegiatan'],
+                ['pengembalian', 'Bukti pengembalian']].map(([jenis, judul]) => {
+                const isi = lpj.lampiran.filter((f) => (f.jenis || 'nota') === jenis);
+                if (isi.length === 0) return null;
+                return <GaleriLampiran key={jenis} judul={judul} berkas={isi} />;
+              })}
             </div>
           )}
         </div>
@@ -563,7 +563,7 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
         id: 'L' + Date.now() + Math.random().toString(36).slice(2, 6),
         kegiatanId: x.kegiatanId, uraian: x.uraian,
         anggaran: Number(x.nominal) || 0, realisasi: 0,
-        bonSementara: 'N', noNota: '', evaluasi: '',
+        bonSementara: 'N', noNota: '', indikator: '', evaluasi: '',
       });
     }));
     if (tambahan.length === 0) return beritahu('Semua uraian PBO sudah ada di daftar', 'info');
@@ -612,6 +612,8 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
   if (baris.length === 0) kurang.push('belum ada uraian');
   if (baris.some((b) => !b.uraian)) kurang.push('ada uraian yang kosong');
   if (!evaluasiLengkap) kurang.push('bagian evaluasi belum lengkap');
+  if (baris.some((b) => Number(b.realisasi) > 0 && !(b.evaluasi || '').trim()))
+    kurang.push('ada baris terpakai yang belum diisi hasil evaluasinya');
 
   const perluPembina = Boolean(bpMilik.find((b) => b.kode === bp)?.divisi) && peran === 'pengurus';
 
@@ -694,7 +696,7 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
                   )}
                   <button onClick={() => setBaris((v) => [...v, {
                     id: 'L' + Date.now(), kegiatanId: '', uraian: '', anggaran: 0,
-                    realisasi: 0, bonSementara: 'N', noNota: '', evaluasi: '',
+                    realisasi: 0, bonSementara: 'N', noNota: '', indikator: '', evaluasi: '',
                   }])}
                     className="text-xs px-2 py-1 border border-stone-300 rounded hover:bg-white">Tambah baris</button>
                 </div>
@@ -737,9 +739,19 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
                               placeholder="1-2" className="w-full border border-stone-300 rounded-md px-2 py-2 text-sm" />
                           </div>
                         </div>
-                        <input value={b.evaluasi} onChange={(e) => ubahBaris(b.id, { evaluasi: e.target.value })}
-                          placeholder="Keterangan atau evaluasi baris ini"
-                          className="w-full border border-stone-300 rounded-md px-2 py-1.5 text-[13px]" />
+                        <div>
+                          <label className="block text-[10px] text-stone-500 mb-0.5">Indikator pencapaian</label>
+                          <input value={b.indikator || ''} onChange={(e) => ubahBaris(b.id, { indikator: e.target.value })}
+                            placeholder="Ukuran keberhasilan, misalnya dihadiri 250 jemaat"
+                            className="w-full border border-stone-300 rounded-md px-2 py-1.5 text-[13px]" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-stone-500 mb-0.5">Hasil evaluasi</label>
+                          <textarea value={b.evaluasi || ''} rows={2}
+                            onChange={(e) => ubahBaris(b.id, { evaluasi: e.target.value })}
+                            placeholder="Apa yang tercapai, apa yang meleset, dan mengapa"
+                            className="w-full border border-stone-300 rounded-md px-2 py-1.5 text-[13px] resize-none" />
+                        </div>
                       </div>
                       <button onClick={() => setBaris((v) => v.filter((x) => x.id !== b.id))}
                         className="p-1.5 text-stone-400 hover:text-red-600 shrink-0"><X size={15} /></button>
@@ -866,6 +878,37 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────── Galeri lampiran ─────────── */
+
+// Gambar ditampilkan langsung supaya bukti terlihat tanpa membuka satu per satu,
+// dan ikut tercetak saat laporan dicetak.
+function GaleriLampiran({ judul, berkas }) {
+  const gambar = (f) => !/\.pdf$/i.test(f.nama || '');
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-stone-500 mb-1.5">
+        {judul} · {berkas.length}
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+        {berkas.map((f) => (
+          <a key={f.id} href={f.url} target="_blank" rel="noreferrer"
+            className="block border border-stone-200 rounded-md overflow-hidden hover:border-teal-600">
+            {gambar(f) ? (
+              <img src={f.url} alt={f.nama} loading="lazy"
+                className="w-full h-28 object-cover bg-stone-50" />
+            ) : (
+              <div className="w-full h-28 bg-stone-50 flex items-center justify-center">
+                <Receipt size={22} className="text-stone-400" />
+              </div>
+            )}
+            <p className="text-[10px] text-stone-600 px-2 py-1 truncate">{f.nama}</p>
+          </a>
+        ))}
       </div>
     </div>
   );
