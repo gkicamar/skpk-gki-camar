@@ -77,11 +77,13 @@ export default function PBO({ beritahu }) {
 
   const jumlahStatus = (st) => tersaring.filter((p) => p.status === st).reduce((s, p) => s + totalPBO(p), 0);
 
-  const simpan = async (isi) => {
-    const id = isi.id || `${isi.bp}_${Date.now()}`;
+  const simpan = async ({ id, baru, ...isi }) => {
+    const kunci = id || `${isi.bp}_${Date.now()}`;
+    // Firestore menolak nilai undefined, jadi kolom kosong dibuang lebih dulu.
+    const bersih = Object.fromEntries(Object.entries(isi).filter(([, v]) => v !== undefined));
     try {
-      await setDoc(doc(db, 'pbo', id), {
-        ...isi, total: totalPBO(isi),
+      await setDoc(doc(db, 'pbo', kunci), {
+        ...bersih, total: totalPBO(isi),
         diperbarui: serverTimestamp(), diperbaruiOleh: profil?.nama || '',
       }, { merge: true });
       setForm(null);
@@ -89,7 +91,7 @@ export default function PBO({ beritahu }) {
     } catch (e) {
       beritahu(e.code === 'permission-denied'
         ? 'Tidak berhak mengajukan untuk badan pelayanan ini. Periksa penugasan akun Anda.'
-        : 'Gagal menyimpan. Periksa sambungan lalu coba lagi.', 'info');
+        : `Gagal menyimpan: ${e.message || e.code || 'sebab tidak diketahui'}`, 'info');
     }
   };
 
@@ -502,10 +504,11 @@ function FormPBO({ isi, bpMilik, daftar, tahun, bulan, peran, profil, onBatal, o
   };
 
   const kirim = () => onSimpan({
-    id: isi.id, nomor, bp, tahunPelayanan: tahun, periodeAnggaran: periode,
+    ...(isi.id ? { id: isi.id } : {}),
+    nomor, bp, tahunPelayanan: tahun, periodeAnggaran: periode,
     tglAjukan, dana, penerima, baris, total,
     status: perluPembina ? 'diajukan' : 'diperiksaPembina',
-    izinKhusus: izin, diajukanOleh: profil?.nama || '',
+    izinKhusus: izin || null, diajukanOleh: profil?.nama || '',
     riwayat: isi.riwayat || [],
   });
 

@@ -37,14 +37,19 @@ export default function KelolaPengguna({ beritahu }) {
     }), [pengguna, cari, saring]);
 
   const simpan = async (isi) => {
-    const { uid, ...data } = isi;
-    await setDoc(doc(db, 'pengguna', uid), {
-      ...data,
-      diperbarui: serverTimestamp(),
-      ...(form?.baru ? { dibuat: serverTimestamp(), sandiAwal: true } : {}),
-    }, { merge: true });
-    setForm(null);
-    beritahu(form?.baru ? 'Akun terdaftar di sistem' : 'Akun diperbarui');
+    const { uid, baru, ...data } = isi;
+    const bersih = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+    try {
+      await setDoc(doc(db, 'pengguna', uid), {
+        ...bersih,
+        diperbarui: serverTimestamp(),
+        ...(form?.baru ? { dibuat: serverTimestamp(), sandiAwal: true } : {}),
+      }, { merge: true });
+      setForm(null);
+      beritahu(form?.baru ? 'Akun terdaftar di sistem' : 'Akun diperbarui');
+    } catch (e) {
+      beritahu(`Gagal menyimpan: ${e.message || e.code}`, 'info');
+    }
   };
 
   const ubahAktif = async (p) => {

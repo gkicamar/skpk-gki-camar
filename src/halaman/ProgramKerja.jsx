@@ -125,13 +125,23 @@ export default function ProgramKerja({ beritahu }) {
   const totalRutin = induk.filter((b) => b.sifat === 'Rutin').reduce((s, b) => s + totalBaris(b), 0);
 
   const simpanDok = async (perubahan, pesan) => {
-    await setDoc(doc(db, 'programKerja', idProgram(tahun, bpAktif)), {
+    const isi = {
       tahunPelayanan: tahun, bp: bpAktif,
       status: dok?.status || 'draf', baris: dok?.baris || [],
       ...perubahan,
-      diperbarui: serverTimestamp(), diperbaruiOleh: profil?.nama || '',
-    }, { merge: true });
-    if (pesan) beritahu(pesan);
+    };
+    const bersih = Object.fromEntries(Object.entries(isi).filter(([, v]) => v !== undefined));
+    try {
+      await setDoc(doc(db, 'programKerja', idProgram(tahun, bpAktif)), {
+        ...bersih,
+        diperbarui: serverTimestamp(), diperbaruiOleh: profil?.nama || '',
+      }, { merge: true });
+      if (pesan) beritahu(pesan);
+    } catch (e) {
+      beritahu(e.code === 'permission-denied'
+        ? 'Tidak berhak mengubah program kerja ini.'
+        : `Gagal menyimpan: ${e.message || e.code}`, 'info');
+    }
   };
 
   const simpanBaris = async (isi) => {
