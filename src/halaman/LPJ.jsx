@@ -9,6 +9,7 @@ import { InputRupiah, PilihBP } from '../komponen/Dasar.jsx';
 import {
   rp, periodeTP, labelPeriode, labelBulanPendek, tanggalPanjang, tpBerjalan,
   hariIni, kompresGambar, ukuranBerkas,
+  APLIKASI,
 } from '../util/format.js';
 import {
   Plus, X, Save, Send, CheckCircle2, Undo2, Printer, Info, AlertTriangle,
@@ -26,7 +27,7 @@ const STATUS = {
 };
 
 const BATAS_BERKAS = 2 * 1024 * 1024;
-const MIN_EVALUASI = 5;
+const MIN_EVALUASI = 10;
 
 const idLPJ = (bp, periode) => `${bp}_${periode}`;
 const jumlahRealisasi = (l) => (l?.baris || []).reduce((s, b) => s + (Number(b.realisasi) || 0), 0);
@@ -290,6 +291,9 @@ export default function LPJ({ beritahu }) {
           onBatal={() => setSelesaikan(null)}
           onSimpan={selesaikan.mode === 'kirim' ? kirimBukti : simpanPenyelesaian} />
       )}
+      <p className="hidden print:block text-[10px] text-stone-400 text-center pt-4 border-t border-stone-200 mt-4">
+        {APLIKASI.kode} · {APLIKASI.nama} · {APLIKASI.gereja} · {APLIKASI.pembuat}
+      </p>
     </div>
   );
 }
@@ -472,19 +476,6 @@ function BarisLPJ({ lpj, namaBP, peran, milik, punyaSendiri, terbuka, onBuka, on
             </p>
           )}
 
-          {lpj.evaluasi?.keberhasilan && (
-            <div className="space-y-2">
-              {[['Yang berjalan baik', lpj.evaluasi.keberhasilan], ['Kendala', lpj.evaluasi.kendala],
-                ['Akar masalah', lpj.evaluasi.akarMasalah], ['Rekomendasi', lpj.evaluasi.rekomendasi],
-                ['Tindak lanjut', lpj.evaluasi.tindakLanjut]].filter((x) => x[1]).map(([k, v]) => (
-                <div key={k}>
-                  <p className="text-[10px] uppercase tracking-wider text-stone-500 mb-0.5">{k}</p>
-                  <p className="text-[12px] text-stone-700 whitespace-pre-line">{v}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
           {lpj.lampiran?.length > 0 && (
             <div className="space-y-3">
               {[['nota', 'Nota dan kuitansi'], ['kegiatan', 'Dokumentasi kegiatan'],
@@ -510,9 +501,6 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
   const [baris, setBaris] = useState(isi.baris || []);
   const [donatur, setDonatur] = useState(Number(isi.donatur) || 0);
   const [lampiran, setLampiran] = useState(isi.lampiran || []);
-  const [evaluasi, setEvaluasi] = useState(isi.evaluasi || {
-    keberhasilan: '', kendala: '', akarMasalah: '', rekomendasi: '', tindakLanjut: '',
-  });
   const [program, setProgram] = useState(null);
   const [bagian, setBagian] = useState('keuangan');
   const [unggah, setUnggah] = useState(false);
@@ -604,23 +592,24 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
   const realisasi = baris.reduce((s, b) => s + (Number(b.realisasi) || 0), 0);
   const sisa = totalPBO + donatur - realisasi;
   const serapan = pagu > 0 ? Math.round((realisasi / pagu) * 100) : null;
-  const evaluasiLengkap = ['keberhasilan', 'kendala', 'rekomendasi', 'tindakLanjut']
-    .every((k) => (evaluasi[k] || '').trim().length >= MIN_EVALUASI);
-
+  // Baris yang ada realisasinya wajib punya indikator pencapaian dan hasil
+  // evaluasi, karena keduanya menjadi isi laporan evaluasi berkala.
+  const terpakai = baris.filter((b) => Number(b.realisasi) > 0);
   const kurang = [];
   if (!periode) kurang.push('bulan belum dipilih');
   if (baris.length === 0) kurang.push('belum ada uraian');
   if (baris.some((b) => !b.uraian)) kurang.push('ada uraian yang kosong');
-  if (!evaluasiLengkap) kurang.push('bagian evaluasi belum lengkap');
-  if (baris.some((b) => Number(b.realisasi) > 0 && !(b.evaluasi || '').trim()))
-    kurang.push('ada baris terpakai yang belum diisi hasil evaluasinya');
+  if (terpakai.some((b) => (b.indikator || '').trim().length < MIN_EVALUASI))
+    kurang.push('ada indikator pencapaian yang belum diisi');
+  if (terpakai.some((b) => (b.evaluasi || '').trim().length < MIN_EVALUASI))
+    kurang.push('ada hasil evaluasi yang belum diisi');
 
   const perluPembina = Boolean(bpMilik.find((b) => b.kode === bp)?.divisi) && peran === 'pengurus';
 
   const kirim = (status) => onSimpan({
     ...(isi.id ? { id: isi.id } : {}),
     bp, tahunPelayanan: tahun, periodeAnggaran: periode, tglLPJ,
-    baris, donatur, lampiran, evaluasi, totalPBO, pagu, realisasi,
+    baris, donatur, lampiran, totalPBO, pagu, realisasi,
     status: status === 'draf' ? 'draf' : (perluPembina ? 'diajukan' : 'diperiksaPembina'),
     disusunOleh: profil?.nama || '', riwayat: isi.riwayat || [],
   });
@@ -639,12 +628,10 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
         </div>
 
         <div className="px-5 pt-4 flex gap-1.5 flex-wrap">
-          {[['keuangan', 'Keuangan'], ['lampiran', `Lampiran${lampiran.length ? ` · ${lampiran.length}` : ''}`],
-            ['evaluasi', evaluasiLengkap ? 'Evaluasi ✓' : 'Evaluasi · wajib']].map(([id, l]) => (
+          {[['keuangan', 'Keuangan'], ['lampiran', `Lampiran${lampiran.length ? ` · ${lampiran.length}` : ''}`]].map(([id, l]) => (
             <button key={id} onClick={() => setBagian(id)}
               className={`px-3 py-1.5 rounded-md text-sm border ${
                 bagian === id ? 'bg-stone-900 text-white border-stone-900'
-                  : id === 'evaluasi' && !evaluasiLengkap ? 'bg-amber-50 border-amber-300 text-amber-900'
                   : 'bg-white border-stone-300 hover:bg-stone-50'}`}>{l}</button>
           ))}
         </div>
@@ -837,23 +824,6 @@ function FormLPJ({ isi, bpMilik, bulan, tahun, pboSemua, daftar, peran, profil, 
             )}
           </>}
 
-          {bagian === 'evaluasi' && <>
-            <p className="text-[12px] bg-stone-50 text-stone-700 px-3 py-2 rounded flex items-start gap-1.5">
-              <Info size={14} className="mt-px shrink-0" />
-              Bagian ini wajib. LPJ tanpa evaluasi hanya membuktikan uangnya habis, bukan bahwa
-              pelayanannya berjalan.
-            </p>
-            {[
-              ['keberhasilan', 'Apa yang berjalan baik, dan mengapa', 'Ceritakan bagian yang berhasil beserta penyebabnya', 3],
-              ['kendala', 'Kendala yang dihadapi', 'Hambatan selama persiapan maupun pelaksanaan', 3],
-              ['akarMasalah', 'Akar masalahnya menurut badan pelayanan', 'Mengapa kendala itu terjadi', 2],
-              ['rekomendasi', 'Rekomendasi untuk kegiatan sejenis berikutnya', 'Saran perbaikan yang konkret', 3],
-              ['tindakLanjut', 'Tindak lanjut, penanggung jawab, dan targetnya', 'Apa yang akan dikerjakan, oleh siapa, kapan', 3],
-            ].map(([kunci, label, contoh, n]) => (
-              <Isian key={kunci} label={label} contoh={contoh} baris={n} nilai={evaluasi[kunci]}
-                onUbah={(v) => setEvaluasi((x) => ({ ...x, [kunci]: v }))} />
-            ))}
-          </>}
         </div>
 
         <div className="px-5 py-4 border-t border-stone-200 sticky bottom-0 bg-white space-y-2">
@@ -914,23 +884,6 @@ function GaleriLampiran({ judul, berkas }) {
   );
 }
 
-/* ─────────── Kotak isian evaluasi ─────────── */
-
-// Didefinisikan di luar formulir. Kalau ditulis di dalamnya, React menganggapnya
-// komponen baru setiap render dan fokus mengetik akan lepas tiap huruf.
-function Isian({ label, nilai, onUbah, contoh, baris = 3 }) {
-  const pendek = (nilai || '').trim().length < MIN_EVALUASI;
-  return (
-    <div>
-      <label className="block text-[11px] text-stone-500 mb-1">{label}</label>
-      <textarea value={nilai || ''} rows={baris} placeholder={contoh}
-        onChange={(e) => onUbah(e.target.value)}
-        className={`w-full border rounded-md px-3 py-2 text-sm resize-none ${pendek ? 'border-amber-300' : 'border-stone-300'}`} />
-      {pendek && <p className="text-[11px] text-amber-700 mt-0.5">Isi minimal {MIN_EVALUASI} huruf</p>}
-    </div>
-  );
-}
-
 /* ─────────── Verifikasi ─────────── */
 
 function DialogVerifikasi({ lpj, tahap, namaBP, onBatal, onSimpan }) {
@@ -952,15 +905,6 @@ function DialogVerifikasi({ lpj, tahap, namaBP, onBatal, onSimpan }) {
         </div>
 
         <div className="p-5 space-y-4">
-          <p className="text-[12px] bg-stone-50 text-stone-700 px-3 py-2 rounded flex items-start gap-1.5">
-            <Info size={14} className="mt-px shrink-0" />
-            {cocokkan
-              ? 'Cocokkan nominal yang benar-benar masuk ke rekening gereja dengan angka pada bukti yang dikirim badan pelayanan.'
-              : kirimMode
-              ? 'Transfer sisa ke rekening gereja lebih dulu, lalu unggah bukti transfernya di sini. Bendahara yang akan mencocokkannya dengan mutasi bank.'
-              : 'Bendahara mentransfer kekurangan ke badan pelayanan, lalu mengunggah bukti transfernya. Setelah tersimpan, LPJ ini tuntas.'}
-          </p>
-
           <div className="bg-stone-50 rounded-md px-4 py-3 space-y-1.5 text-sm">
             {[['PBO dicairkan', rp(lpj.totalPBO)], ['Donatur', rp(lpj.donatur || 0)],
               ['Realisasi', rp(realisasi)],

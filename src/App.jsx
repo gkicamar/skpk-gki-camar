@@ -8,6 +8,7 @@ import KelolaPengguna from './halaman/KelolaPengguna.jsx';
 import ProgramKerja from './halaman/ProgramKerja.jsx';
 import PBO from './halaman/PBO.jsx';
 import LPJ from './halaman/LPJ.jsx';
+import Evaluasi from './halaman/Evaluasi.jsx';
 import { boleh } from './util/peran.js';
 import PenangkapGalat from './komponen/PenangkapGalat.jsx';
 
@@ -75,6 +76,8 @@ export default function App() {
           <PBO beritahu={beritahu} />
         ) : tab === 'lpj' ? (
           <LPJ beritahu={beritahu} />
+        ) : tab === 'evaluasi' ? (
+          <Evaluasi beritahu={beritahu} />
         ) : tab === 'pengguna' ? (
           <KelolaPengguna beritahu={beritahu} />
         ) : tab === 'pengaturan' ? (
@@ -111,6 +114,7 @@ const NAMA_LAYAR = {
   programKerja: 'Program kerja',
   pbo: 'PBO',
   lpj: 'LPJ',
+  evaluasi: 'Laporan evaluasi',
   keuangan: 'Keuangan gereja',
   anggaran: 'Anggaran',
 };

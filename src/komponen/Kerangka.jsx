@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import {
   Menu, X, Home, ClipboardList, HandCoins, FileText,
-  Wallet, Target, Users, Settings, LogOut, KeyRound,
+  Wallet, Target, Users, Settings, LogOut, KeyRound, ClipboardCheck,
 } from 'lucide-react';
 import GantiSandi from './GantiSandi.jsx';
 import { Logo } from './Dasar.jsx';
 import { useAuth } from '../konteks/Auth.jsx';
 import { boleh, namaPeran, PERAN } from '../util/peran.js';
+import { APLIKASI } from '../util/format.js';
 
 const MENU = [
   { id: 'beranda',      label: 'Beranda',         ikon: Home,          layar: 'beranda',      grup: 'Utama' },
   { id: 'programKerja', label: 'Program kerja',   ikon: ClipboardList, layar: 'programKerja', grup: 'Pelayanan' },
   { id: 'pbo',          label: 'PBO',             ikon: HandCoins,     layar: 'pbo',          grup: 'Pelayanan' },
   { id: 'lpj',          label: 'LPJ',             ikon: FileText,      layar: 'lpj',          grup: 'Pelayanan' },
+  { id: 'evaluasi',     label: 'Laporan evaluasi', ikon: ClipboardCheck, layar: 'evaluasi',   grup: 'Pelayanan' },
   { id: 'keuangan',     label: 'Keuangan gereja', ikon: Wallet,        layar: 'keuangan',     grup: 'Majelis' },
   { id: 'anggaran',     label: 'Anggaran',        ikon: Target,        layar: 'anggaran',     grup: 'Majelis' },
   { id: 'pengguna',     label: 'Kelola akun',     ikon: Users,         layar: 'penggunaAkun', grup: 'Atur' },
@@ -68,6 +70,12 @@ export default function Kerangka({ tab, setTab, children }) {
             </div>
           ))}
         </nav>
+
+        <div className="px-5 py-3 border-t border-stone-800">
+          <p className="text-[10px] text-stone-600 font-mono" title={`${APLIKASI.nama} · ${APLIKASI.pembuat}`}>
+            {APLIKASI.kode}
+          </p>
+        </div>
 
         <div className="px-5 py-4 border-t border-stone-800">
           <p className="text-sm text-white truncate">{profil?.nama || '—'}</p>

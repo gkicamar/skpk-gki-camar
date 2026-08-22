@@ -52,6 +52,7 @@ export const AKSES = {
   programKerja:  ['super', 'ketua', 'bendahara', 'pembina', 'pengurus'],
   pbo:           ['super', 'ketua', 'bendahara', 'pembina', 'pengurus'],
   lpj:           ['super', 'ketua', 'bendahara', 'pembina', 'pengurus'],
+  evaluasi:      ['super', 'ketua', 'bendahara', 'pembina', 'pengurus'],
   keuangan:      ['super', 'ketua', 'bendahara', 'pembina'],
   anggaran:      ['super', 'ketua', 'bendahara', 'pembina'],
   penggunaAkun:  ['super'],
